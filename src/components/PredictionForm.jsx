@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { api } from "../api";
 
 const symptomGroups = [
   {
@@ -23,11 +24,13 @@ function PredictionForm({
   onPredictionComplete,
   onPredictionStart,
   onPredictionError,
+  patients,
   loading,
 }) {
   const [errorMessage, setErrorMessage] = useState("");
   const [selectedSymptoms, setSelectedSymptoms] = useState([]);
   const [temperature, setTemperature] = useState("");
+  const [selectedPatientId, setSelectedPatientId] = useState("");
   const [formData, setFormData] = useState({
     name: "",
     age: "",
@@ -42,22 +45,54 @@ function PredictionForm({
   });
 
   const handleChange = (e) => {
+    if (["name", "age", "gender", "phone", "email"].includes(e.target.name)) {
+      setSelectedPatientId("");
+    }
     setFormData({
       ...formData,
       [e.target.name]: e.target.value,
     });
   };
 
+  const handlePatientSelect = (event) => {
+    const id = event.target.value;
+    setSelectedPatientId(id);
+    if (!id) return;
+
+    const patient = patients.find((item) => String(item.id) === id);
+    if (!patient) return;
+
+    const gender = String(patient.gender || "").toLowerCase();
+    setFormData((current) => ({
+      ...current,
+      name: patient.name || current.name,
+      age: patient.age == null ? current.age : String(patient.age),
+      gender: gender === "male" || gender === "m" || gender === "0"
+        ? "Male"
+        : gender === "female" || gender === "f" || gender === "1"
+          ? "Female"
+          : "",
+      phone: patient.phone || "",
+      email: patient.email || "",
+      bloodPressure: patient.bloodPressure == null ? "" : String(patient.bloodPressure),
+      glucose: patient.glucose == null ? "" : String(patient.glucose),
+      bmi: patient.bmi == null ? "" : String(patient.bmi),
+      heartRate: patient.heartRate == null ? "" : String(patient.heartRate),
+      cholesterol: patient.cholesterol == null ? "" : String(patient.cholesterol),
+    }));
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    const requestData = {
-      diseaseType: "",
-      predictionResult: "",
-      riskLevel: "",
-      probability: 0,
-      patient: {
-        name: formData.name,
+    try {
+      setErrorMessage("");
+      onPredictionStart?.();
+
+      const patient = patients.find((item) => String(item.id) === selectedPatientId);
+      const patientData = {
+        ...(patient?.id == null ? {} : { id: patient.id }),
+        name: formData.name.trim(),
         age: Number(formData.age),
         gender: formData.gender,
         phone: formData.phone,
@@ -67,34 +102,11 @@ function PredictionForm({
         bmi: Number(formData.bmi),
         heartRate: Number(formData.heartRate),
         cholesterol: Number(formData.cholesterol),
-      },
-    };
-
-    try {
-      setErrorMessage("");
-      onPredictionStart?.();
-
-      const response = await fetch("http://localhost:8080/predictions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(requestData),
+      };
+      const result = await api.createPrediction({
+        ...(patient?.id == null ? {} : { patientId: patient.id }),
+        patient: patientData,
       });
-
-      const responseText = await response.text();
-      let result;
-
-      try {
-        result = responseText ? JSON.parse(responseText) : {};
-      } catch {
-        result = { message: responseText };
-      }
-
-      if (!response.ok) {
-        const detail = result.message || result.error || result.detail;
-        throw new Error(`Prediction service returned ${response.status}${detail ? `: ${detail}` : ""}`);
-      }
 
       if (!result || typeof result !== "object" || Array.isArray(result)) {
         throw new Error("The prediction service returned an invalid response.");
@@ -102,7 +114,7 @@ function PredictionForm({
 
       onPredictionComplete({
         ...result,
-        patient: result.patient ?? requestData.patient,
+        patient: result.patient ?? patientData,
         reportedSymptoms: {
           items: selectedSymptoms,
           groups: symptomGroups
@@ -115,10 +127,7 @@ function PredictionForm({
         },
       });
     } catch (error) {
-      console.error(error);
-      const message = error instanceof TypeError
-        ? "Cannot reach the prediction API at http://localhost:8080. Make sure the EDPS backend is running."
-        : error.message || "An unexpected error occurred while requesting a prediction.";
+      const message = error.message || "An unexpected error occurred while requesting a prediction.";
       setErrorMessage(message);
       onPredictionError?.();
     }
@@ -127,6 +136,7 @@ function PredictionForm({
   const resetForm = () => {
     setSelectedSymptoms([]);
     setTemperature("");
+    setSelectedPatientId("");
     setFormData({
       name: "",
       age: "",
@@ -165,8 +175,21 @@ function PredictionForm({
           </h3>
 
           <div className="input-group full">
-            <label>Patient Name</label>
+            <label htmlFor="existing-patient">Use a backend patient record (optional)</label>
+            <select id="existing-patient" value={selectedPatientId} onChange={handlePatientSelect}>
+              <option value="">Enter patient details manually</option>
+              {patients.filter((patient) => patient.id != null).map((patient) => (
+                <option key={patient.id} value={patient.id}>
+                  {patient.name || "Unnamed patient"}{patient.id != null ? ` · ID ${patient.id}` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="input-group full">
+            <label htmlFor="prediction-patient-name">Patient Name</label>
             <input
+              id="prediction-patient-name"
               type="text"
               name="name"
               placeholder="Enter patient name"
@@ -179,9 +202,13 @@ function PredictionForm({
           <div className="two-column">
 
             <div className="input-group">
-              <label>Age</label>
+              <label htmlFor="prediction-patient-age">Age</label>
               <input
+                id="prediction-patient-age"
                 type="number"
+                min="1"
+                max="120"
+                step="1"
                 name="age"
                 placeholder="Enter age"
                 value={formData.age}
@@ -191,25 +218,27 @@ function PredictionForm({
             </div>
 
             <div className="input-group">
-              <label>Gender</label>
+              <label htmlFor="prediction-patient-gender">Gender</label>
 
               <select
+                id="prediction-patient-gender"
                 name="gender"
                 value={formData.gender}
                 onChange={handleChange}
                 required
               >
                 <option value="">Select Gender</option>
-                <option value="1">Male</option>
-                <option value="0">Female</option>
+                <option value="Male">Male (model code 0)</option>
+                <option value="Female">Female (model code 1)</option>
               </select>
             </div>
 
           </div>
 
           <div className="input-group full">
-            <label>Phone Number</label>
+            <label htmlFor="prediction-patient-phone">Phone Number</label>
             <input
+              id="prediction-patient-phone"
               type="text"
               name="phone"
               placeholder="Enter phone number"
@@ -219,8 +248,9 @@ function PredictionForm({
           </div>
 
           <div className="input-group full">
-            <label>Email Address</label>
+            <label htmlFor="prediction-patient-email">Email Address</label>
             <input
+              id="prediction-patient-email"
               type="email"
               name="email"
               placeholder="patient@email.com"
@@ -242,9 +272,12 @@ function PredictionForm({
           <div className="two-column">
 
             <div className="input-group">
-              <label>Blood Pressure (mmHg)</label>
+              <label htmlFor="prediction-blood-pressure">Blood Pressure (mmHg)</label>
               <input
+                id="prediction-blood-pressure"
                 type="number"
+                min="40"
+                max="300"
                 name="bloodPressure"
                 placeholder="e.g. 120"
                 value={formData.bloodPressure}
@@ -254,9 +287,12 @@ function PredictionForm({
             </div>
 
             <div className="input-group">
-              <label>Glucose (mg/dL)</label>
+              <label htmlFor="prediction-glucose">Glucose (mg/dL)</label>
               <input
+                id="prediction-glucose"
                 type="number"
+                min="20"
+                max="1000"
                 name="glucose"
                 placeholder="e.g. 100"
                 value={formData.glucose}
@@ -270,9 +306,12 @@ function PredictionForm({
           <div className="two-column">
 
             <div className="input-group">
-              <label>BMI</label>
+              <label htmlFor="prediction-bmi">BMI</label>
               <input
+                id="prediction-bmi"
                 type="number"
+                min="5"
+                max="100"
                 step="0.1"
                 name="bmi"
                 placeholder="e.g. 24.5"
@@ -283,9 +322,12 @@ function PredictionForm({
             </div>
 
             <div className="input-group">
-              <label>Heart Rate (bpm)</label>
+              <label htmlFor="prediction-heart-rate">Heart Rate (bpm)</label>
               <input
+                id="prediction-heart-rate"
                 type="number"
+                min="20"
+                max="250"
                 name="heartRate"
                 placeholder="e.g. 72"
                 value={formData.heartRate}
@@ -297,9 +339,12 @@ function PredictionForm({
           </div>
 
           <div className="input-group full">
-            <label>Cholesterol (mg/dL)</label>
+            <label htmlFor="prediction-cholesterol">Cholesterol (mg/dL)</label>
             <input
+              id="prediction-cholesterol"
               type="number"
+              min="50"
+              max="1000"
               name="cholesterol"
               placeholder="e.g. 180"
               value={formData.cholesterol}
@@ -309,8 +354,7 @@ function PredictionForm({
           </div>
 
           <div className="ai-note">
-            🤖 Your health parameters will be securely analyzed using
-            our Machine Learning prediction model.
+            🤖 Health features are sent to the configured Spring Boot API, which forwards them to the Python model. Avoid real identifying data in this academic demonstration.
           </div>
 
         </div>
@@ -321,7 +365,7 @@ function PredictionForm({
         <div className="symptom-section-heading">
           <div>
             <h3 id="symptom-form-title">Patient-reported symptoms <span>Optional</span></h3>
-            <p>Record what the patient is experiencing. These symptoms are shown as context and are not analyzed by the prediction model.</p>
+            <p>Optional local context only. Symptoms and temperature are not sent to the backend, analyzed by the model, or saved in prediction history.</p>
           </div>
           <label className="temperature-field">
             Temperature (°C)

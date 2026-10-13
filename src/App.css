@@ -246,8 +246,8 @@ select {
 .system-online {
   padding: 8px 15px;
   border-radius: 20px;
-  background: rgba(34, 197, 94, 0.14);
-  color: #a7f3d0;
+  background: #e3f8ed;
+  color: #17633f;
   font-size: 12px;
   font-weight: bold;
 }
@@ -784,10 +784,10 @@ select {
 .prediction-error {
   margin: -6px 0 18px;
   padding: 12px 14px;
-  border: 1px solid rgba(248, 113, 113, 0.4);
+  border: 1px solid #efb7b2;
   border-radius: 10px;
-  color: #ffd0d0;
-  background: rgba(153, 27, 27, 0.2);
+  color: #8f2620;
+  background: #fff2f0;
   font-size: 12px;
   line-height: 1.55;
   overflow-wrap: anywhere;
@@ -1246,13 +1246,13 @@ select {
   padding: 9px 10px;
   border: 1px solid rgba(248, 173, 71, 0.35);
   border-radius: 8px;
-  color: #ffdca8;
-  background: rgba(162, 97, 16, 0.15);
+  color: #74400b;
+  background: #fff6e6;
 }
 
 .symptoms-disclaimer {
   padding-top: 9px;
-  border-top: 1px solid #23364d;
+  border-top: 1px solid #dfeee4;
 }
 
 .red-text {
@@ -1855,7 +1855,7 @@ select {
 .text-action {
   padding: 0;
   border: 0;
-  color: #82bdff;
+  color: #0d6b46;
   background: none;
   font-size: 11px;
   font-weight: 700;
@@ -1863,7 +1863,7 @@ select {
 }
 
 .danger-action {
-  color: #ff9292;
+  color: #b42318;
 }
 
 .status-pill {
@@ -1912,20 +1912,20 @@ select {
   display: grid;
   place-items: center;
   border-radius: 18px;
-  color: #85c2ff;
-  background: rgba(90, 167, 255, 0.12);
+  color: #0d6b46;
+  background: #e3f8ed;
   font-size: 26px;
 }
 
 .page-empty-state h3 {
   margin: 15px 0 5px;
-  color: #eaf3ff;
+  color: #18372d;
   font-size: 16px;
 }
 
 .page-empty-state p {
   max-width: 440px;
-  color: #97abc2;
+  color: #58756a;
   font-size: 12px;
   line-height: 1.6;
 }
@@ -2377,6 +2377,151 @@ select {
   color: #75c99a;
 }
 
+.confidence-circle {
+  border: 0;
+  position: relative;
+  isolation: isolate;
+  background: conic-gradient(var(--risk-color, #27a86e) var(--probability-angle, 0deg), #dcebe2 0);
+}
+
+.confidence-circle::after {
+  position: absolute;
+  z-index: 0;
+  content: "";
+  inset: 10px;
+  border-radius: inherit;
+  background: #f5fbf7;
+}
+
+.confidence-circle strong,
+.confidence-circle span {
+  position: relative;
+  z-index: 1;
+}
+
+.high-risk-circle {
+  --risk-color: #d54141;
+}
+
+.low-risk-circle {
+  --risk-color: #23865b;
+}
+
+.unknown-risk-circle {
+  --risk-color: #b66a00;
+}
+
+.unclassified-risk h1 {
+  color: #9a6209;
+}
+
+.probability-meter {
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid #dfeee4;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.probability-meter-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.probability-track {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: #e4eee8;
+}
+
+.probability-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #31ae75, #17895b);
+}
+
+.probability-fill-high {
+  background: linear-gradient(90deg, #f4a344, #d54141);
+}
+
+.probability-fill-unknown {
+  background: linear-gradient(90deg, #f4c15b, #b66a00);
+}
+
+.prediction-provenance {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-top: 14px;
+  color: #58756a;
+  font-size: 11px;
+}
+
+.prediction-provenance strong {
+  color: #18372d;
+  overflow-wrap: anywhere;
+}
+
+.explainability-card {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid #dfeee4;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.explainability-card h3 {
+  margin: 0 0 12px;
+  color: #18372d;
+  font-size: 14px;
+}
+
+.explainability-card dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.explainability-card dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid #e8f0eb;
+  padding-top: 8px;
+  font-size: 12px;
+}
+
+.explainability-card dt {
+  color: #58756a;
+  overflow-wrap: anywhere;
+}
+
+.explainability-card dd {
+  margin: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.dashboard-api-error {
+  margin: 16px 0;
+}
+
+.prediction-page-heading .disclaimer-note {
+  margin-top: 8px;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 3px solid rgba(31, 143, 95, 0.5);
+  outline-offset: 2px;
+}
+
 @media (max-width: 1000px) {
   .menu-item .menu-label {
     display: none;
@@ -2476,5 +2621,105 @@ select {
   .page-toolbar {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+
+.page-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 14px 0;
+  padding: 14px 16px;
+  border: 1px solid #efb7b2;
+  border-radius: 12px;
+  color: #8f2620;
+  background: #fff2f0;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.page-error p {
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
+.page-loading {
+  padding: 18px;
+  border: 1px solid #dfece4;
+  border-radius: 12px;
+  color: #49675e;
+  background: rgba(255, 255, 255, 0.8);
+  font-size: 13px;
+  text-align: center;
+}
+
+.audit-verified {
+  border-color: #a8d9bb;
+  background: #edf9f1;
+}
+
+.audit-verified > span {
+  color: #0d6b46;
+}
+
+.audit-invalid {
+  border-color: #efb7b2;
+  color: #8f2620;
+  background: #fff2f0;
+}
+
+.audit-invalid > span,
+.audit-invalid strong {
+  color: #8f2620;
+}
+
+.audit-banner p,
+.inline-notice,
+.disclaimer-note {
+  overflow-wrap: anywhere;
+}
+
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.text-action:disabled,
+.primary-action:disabled,
+.analyze-btn:disabled,
+.reset-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  transform: none;
+}
+
+@media (max-width: 750px) {
+  .form-buttons {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .reset-btn,
+  .analyze-btn {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .page-error {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
   }
 }

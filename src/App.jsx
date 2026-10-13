@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import "./App.css";
+import { api, probabilityPercent } from "./api";
 import PredictionForm from "./components/PredictionForm";
 import {
   AboutPage,
@@ -21,43 +22,84 @@ const navigationItems = [
   { id: "about", icon: "ⓘ", label: "About EDPS" },
 ];
 
-function readStoredList(key) {
-  try {
-    const value = JSON.parse(localStorage.getItem(key) || "[]");
-    return Array.isArray(value) ? value : [];
-  } catch {
-    return [];
-  }
-}
-
 function App() {
   const [prediction, setPrediction] = useState(null);
   const [loading, setLoading] = useState(false);
   const [activeSection, setActiveSection] = useState("dashboard");
-  const [patients, setPatients] = useState(() => readStoredList("edps-patients"));
-  const [history, setHistory] = useState(() => readStoredList("edps-prediction-history"));
+  const [patients, setPatients] = useState([]);
+  const [patientLoading, setPatientLoading] = useState(true);
+  const [patientError, setPatientError] = useState("");
+  const [history, setHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState("");
+  const [actionLoading, setActionLoading] = useState(false);
+  const [actionError, setActionError] = useState("");
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
 
-  useEffect(() => {
-    localStorage.setItem("edps-patients", JSON.stringify(patients));
-  }, [patients]);
+  const loadPatients = useCallback(async () => {
+    setPatientLoading(true);
+    setPatientError("");
+    try {
+      setPatients(await api.getPatients());
+      return true;
+    } catch (error) {
+      setPatientError(error.message || "Patient records could not be loaded.");
+      return false;
+    } finally {
+      setPatientLoading(false);
+    }
+  }, []);
+
+  const loadHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    setHistoryError("");
+    try {
+      setHistory(await api.getPredictions());
+      return true;
+    } catch (error) {
+      setHistoryError(error.message || "Prediction history could not be loaded.");
+      return false;
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    localStorage.setItem("edps-prediction-history", JSON.stringify(history));
-  }, [history]);
+    let active = true;
+
+    api.getPatients()
+      .then((records) => {
+        if (active) setPatients(records);
+      })
+      .catch((error) => {
+        if (active) setPatientError(error.message || "Patient records could not be loaded.");
+      })
+      .finally(() => {
+        if (active) setPatientLoading(false);
+      });
+
+    api.getPredictions()
+      .then((records) => {
+        if (active) setHistory(records);
+      })
+      .catch((error) => {
+        if (active) setHistoryError(error.message || "Prediction history could not be loaded.");
+      })
+      .finally(() => {
+        if (active) setHistoryLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const handlePredictionComplete = (result) => {
     setPrediction(result);
     setLoading(false);
-    const savedRecord = { ...result, id: crypto.randomUUID(), createdAt: new Date().toISOString() };
-    setHistory((records) => [savedRecord, ...records]);
-    if (result.patient?.name) {
-      setPatients((records) => {
-        const alreadySaved = records.some((patient) => patient.name.toLowerCase() === result.patient.name.toLowerCase());
-        return alreadySaved ? records : [{ ...result.patient, id: crypto.randomUUID(), createdAt: new Date().toISOString() }, ...records];
-      });
-    }
+    loadHistory();
+    loadPatients();
   };
 
   const handlePredictionStart = () => {
@@ -68,29 +110,96 @@ function App() {
     setLoading(false);
   };
 
-  const getProbability = () => {
-    if (!prediction) return 0;
-
-    const value = Number(prediction.probability);
-
-    return value <= 1
-      ? Math.round(value * 100)
-      : Math.round(value);
+  const formatGender = (gender) => {
+    const normalized = String(gender || "").trim().toLowerCase();
+    if (["male", "m", "0"].includes(normalized)) return "Male";
+    if (["female", "f", "1"].includes(normalized)) return "Female";
+    return gender || "Not provided";
   };
 
-  const probability = getProbability();
+  const probability = probabilityPercent(prediction?.probability);
+  const riskLevel = String(prediction?.riskLevel || prediction?.predictionResult || "");
+  const isHighRisk = riskLevel.toLowerCase().includes("high");
+  const isLowRisk = riskLevel.toLowerCase().includes("low");
+  const explainability = prediction?.explainability
+    ?? prediction?.explanation
+    ?? prediction?.featureContributions
+    ?? prediction?.featureImportance
+    ?? prediction?.feature_importance;
+  const explainabilityEntries = typeof explainability === "string"
+    ? [["Model explanation", explainability]]
+    : Array.isArray(explainability)
+      ? explainability.map((item, index) => {
+        const value = item.contribution
+          ?? item.impact
+          ?? item.importance
+          ?? item.mean_importance
+          ?? item.value;
+        const formattedValue = value === undefined
+          ? "Available"
+          : typeof value === "object" && value !== null
+            ? JSON.stringify(value)
+            : String(value);
+        const deviation = item.std_importance == null ? "" : ` ± ${item.std_importance}`;
+        return [item.feature || item.name || `Factor ${index + 1}`, `${formattedValue}${deviation}`];
+      })
+      : explainability && typeof explainability === "object"
+        ? Object.entries(explainability).map(([label, value]) => [
+          label,
+          typeof value === "object" && value !== null ? JSON.stringify(value) : String(value),
+        ])
+        : [];
 
-  const isHighRisk =
-    prediction?.riskLevel?.toLowerCase().includes("high");
+  const withAction = async (action) => {
+    setActionLoading(true);
+    setActionError("");
+    try {
+      await action();
+      return true;
+    } catch (error) {
+      setActionError(error.message || "The requested action could not be completed.");
+      return false;
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
-  const addPatient = (patient) => setPatients((records) => [patient, ...records]);
+  const addPatient = (patient) => withAction(async () => {
+    await api.createPatient(patient);
+    await loadPatients();
+  });
+
+  const updatePatient = (id, patient) => withAction(async () => {
+    await api.updatePatient(id, patient);
+    await loadPatients();
+  });
+
+  const deletePatient = (id) => withAction(async () => {
+    await api.deletePatient(id);
+    await loadPatients();
+    await loadHistory();
+  });
+
+  const clearHistory = () => withAction(async () => {
+    if (history.some((record) => record.id == null)) {
+      throw new Error("The backend history response is missing record IDs, so it cannot be safely cleared.");
+    }
+    const results = await Promise.allSettled(
+      history.map((record) => api.deletePrediction(record.id)),
+    );
+    await loadHistory();
+    const failedCount = results.filter((result) => result.status === "rejected").length;
+    if (failedCount) {
+      throw new Error(`${failedCount} prediction record${failedCount === 1 ? "" : "s"} could not be deleted. The history has been refreshed.`);
+    }
+  });
 
   const exportCsv = (records, filename) => {
     if (!records.length) return;
     const columns = ["createdAt", "patient", "diseaseType", "predictionResult", "riskLevel", "probability"];
     const escapeCsv = (value) => `"${String(value ?? "").replaceAll('"', '""')}"`;
     const rows = records.map((record) => [
-      record.createdAt,
+      record.createdAt || record.timestamp || record.predictedAt,
       record.patient?.name,
       record.diseaseType,
       record.predictionResult,
@@ -109,15 +218,15 @@ function App() {
   const renderActivePage = () => {
     switch (activeSection) {
       case "patients":
-        return <PatientsPage patients={patients} onAddPatient={addPatient} onDeletePatient={(id) => setPatients((records) => records.filter((patient) => patient.id !== id))} />;
+        return <PatientsPage patients={patients} loading={patientLoading} error={patientError} actionError={actionError} actionLoading={actionLoading} onRetry={loadPatients} onAddPatient={addPatient} onUpdatePatient={updatePatient} onDeletePatient={deletePatient} />;
       case "history":
-        return <HistoryPage history={history} onClearHistory={() => setHistory([])} onExport={exportCsv} />;
+        return <HistoryPage history={history} loading={historyLoading} error={historyError} actionError={actionError} actionLoading={actionLoading} onRetry={loadHistory} onClearHistory={clearHistory} onExport={exportCsv} />;
       case "nodes":
         return <HospitalNodesPage />;
       case "blockchain":
         return <BlockchainPage history={history} onExport={exportCsv} />;
       case "analytics":
-        return <AnalyticsPage patients={patients} history={history} />;
+        return <AnalyticsPage patients={patients} history={history} loading={patientLoading || historyLoading} patientError={patientError} historyError={historyError} onRetry={() => { loadPatients(); loadHistory(); }} />;
       case "about":
         return <AboutPage />;
       default:
@@ -206,9 +315,9 @@ function App() {
 
           <div className="header-right">
 
-            <div className="system-online">
+            <div className="system-online" title={`Configured API: ${api.baseUrl}`}>
               <span></span>
-              System Online
+              API configured
             </div>
 
             <div className="header-menu-wrap">
@@ -227,7 +336,7 @@ function App() {
               {showNotifications && (
                 <div className="header-popover">
                   <strong>System notifications</strong>
-                  <p>{history.length ? `${history.length} prediction record${history.length === 1 ? "" : "s"} saved locally.` : "No prediction records yet. Complete a prediction to see activity here."}</p>
+                  <p>{history.length ? `${history.length} prediction record${history.length === 1 ? "" : "s"} returned by the backend.` : historyLoading ? "Loading backend prediction activity…" : historyError || "No backend prediction records yet."}</p>
                   <button type="button" className="text-action" onClick={() => { setActiveSection("history"); setShowNotifications(false); }}>View prediction history</button>
                 </div>
               )}
@@ -243,14 +352,14 @@ function App() {
                   setShowNotifications(false);
                 }}
               >
-                <span className="avatar">👨‍⚕️</span>
-                <span className="admin-user-copy"><strong>Admin User</strong><small>Administrator</small></span>
+                <span className="avatar">✚</span>
+                <span className="admin-user-copy"><strong>Demo Workspace</strong><small>Authentication pending</small></span>
                 <span aria-hidden="true">⌄</span>
               </button>
               {showProfileMenu && (
                 <div className="header-popover profile-popover">
-                  <strong>Administrator</strong>
-                  <p>EDPS project workspace</p>
+                  <strong>Authentication pending</strong>
+                  <p>This academic demo has no backend authentication.</p>
                   <button type="button" className="text-action" onClick={() => { setActiveSection("about"); setShowProfileMenu(false); }}>About this project</button>
                 </div>
               )}
@@ -331,13 +440,13 @@ function App() {
               <div className="trust-stats">
 
                 <div>
-                  <strong>Local</strong>
-                  <small>Browser-based records</small>
+                  <strong>Backend</strong>
+                  <small>Authoritative records</small>
                 </div>
 
                 <div>
-                  <strong>Demo</strong>
-                  <small>Connected service required</small>
+                  <strong>API</strong>
+                  <small>Connection not health-checked</small>
                 </div>
 
               </div>
@@ -355,7 +464,7 @@ function App() {
               <div className="stat-icon blue">♙</div>
 
               <div>
-                <h3>{patients.length}</h3>
+                <h3>{patientLoading ? "…" : patientError ? "—" : patients.length}</h3>
                 <p>Patient Records</p>
               </div>
             </div>
@@ -365,7 +474,7 @@ function App() {
               <div className="stat-icon green">♡</div>
 
               <div>
-                <h3>{history.length}</h3>
+                <h3>{historyLoading ? "…" : historyError ? "—" : history.length}</h3>
                 <p>Saved Predictions</p>
               </div>
             </div>
@@ -375,7 +484,7 @@ function App() {
               <div className="stat-icon purple">▦</div>
 
               <div>
-                <h3>{history.filter((record) => String(record.riskLevel || "").toLowerCase().includes("high")).length}</h3>
+                <h3>{historyLoading ? "…" : historyError ? "—" : history.filter((record) => String(record.riskLevel || "").toLowerCase().includes("high")).length}</h3>
                 <p>High-risk Results</p>
               </div>
             </div>
@@ -386,11 +495,22 @@ function App() {
 
               <div>
                 <h3>4</h3>
-                <p>Sample Hospital Nodes</p>
+                <p>Simulated nodes</p>
               </div>
             </div>
 
           </section>
+
+          {(patientError || historyError) && (
+            <div className="page-error dashboard-api-error" role="alert">
+              <div>
+                <strong>Some dashboard data is unavailable.</strong>
+                {patientError && <p>{patientError}</p>}
+                {historyError && <p>{historyError}</p>}
+              </div>
+              <button className="secondary-action" type="button" onClick={() => { loadPatients(); loadHistory(); }}>Retry</button>
+            </div>
+          )}
 
           <section className="dashboard-recent">
             <div className="dashboard-section-heading">
@@ -400,7 +520,9 @@ function App() {
               </div>
               <button className="text-action" type="button" onClick={() => setActiveSection("history")}>View history</button>
             </div>
-            {history.length ? (
+            {historyLoading ? (
+              <div className="page-loading" role="status">Loading backend prediction activity…</div>
+            ) : history.length ? (
               <div className="dashboard-activity-list">
                 {history.slice(0, 4).map((record) => {
                   const riskLevel = String(record.riskLevel || "Unknown");
@@ -413,7 +535,7 @@ function App() {
                     <article className="dashboard-activity-row" key={record.id}>
                       <div><strong>{record.patient?.name || "Patient record"}</strong><span>{record.diseaseType || "Prediction"}</span></div>
                       <span className={`status-pill ${riskClass}`}>{riskLevel}</span>
-                      <time>{record.createdAt ? new Date(record.createdAt).toLocaleDateString() : "Date unavailable"}</time>
+                      <time>{record.createdAt || record.timestamp || record.predictedAt ? new Date(record.createdAt || record.timestamp || record.predictedAt).toLocaleDateString() : "Date unavailable"}</time>
                     </article>
                   );
                 })}
@@ -432,6 +554,7 @@ function App() {
             <span className="page-eyebrow">PREDICTION WORKSPACE</span>
             <h1>Disease Prediction</h1>
             <p>Enter patient information to request a response from the configured prediction service.</p>
+            <p className="disclaimer-note">Academic demonstration only. Predictions are not medical diagnoses and must not guide treatment or emergency decisions.</p>
           </div>}
 
           {activeSection === "prediction" && <section className="dashboard-grid">
@@ -443,6 +566,7 @@ function App() {
                 onPredictionComplete={handlePredictionComplete}
                 onPredictionStart={handlePredictionStart}
                 onPredictionError={handlePredictionError}
+                patients={patients}
                 loading={loading}
               />
             </div>
@@ -479,9 +603,10 @@ function App() {
 
                     <h3>No Prediction Yet</h3>
 
-                    <p>
-                      Enter patient information and click
-                      Analyze Health Risk.
+                    <p role={loading ? "status" : undefined}>
+                      {loading
+                        ? "Sending the patient features to the Spring Boot prediction endpoint…"
+                        : "Enter patient information and request a prediction from the backend."}
                     </p>
 
                   </div>
@@ -497,15 +622,16 @@ function App() {
 
                       <div
                         className={`confidence-circle ${
-                          isHighRisk
-                            ? "high-risk-circle"
-                            : "low-risk-circle"
+                          isHighRisk ? "high-risk-circle" : isLowRisk ? "low-risk-circle" : "unknown-risk-circle"
                         }`}
+                        style={{ "--probability-angle": `${(probability ?? 0) * 3.6}deg` }}
+                        role="img"
+                        aria-label={probability == null ? "Risk probability not provided" : `Risk probability ${probability}%`}
                       >
 
-                        <strong>{probability}%</strong>
+                        <strong>{probability == null ? "—" : `${probability}%`}</strong>
 
-                        <span>Confidence</span>
+                        <span>Risk probability</span>
 
                       </div>
 
@@ -514,25 +640,26 @@ function App() {
                         className={`risk-message ${
                           isHighRisk
                             ? "high-risk"
-                            : "low-risk"
+                            : isLowRisk
+                              ? "low-risk"
+                              : "unclassified-risk"
                         }`}
                       >
 
                         <h1>
-                          {isHighRisk
-                            ? "⚠ High Risk"
-                            : "✓ Low Risk"}
+                          {isHighRisk ? "⚠ High Risk" : isLowRisk ? "✓ Low Risk" : "Risk Unclassified"}
                         </h1>
 
                         <h3>
                           {isHighRisk
                             ? "Potential Disease Risk Detected"
-                            : "Health Risk Appears Low"}
+                            : isLowRisk
+                              ? "Health Risk Appears Low"
+                              : "The backend did not return a recognized risk category"}
                         </h3>
 
                         <p>
-                          AI model analysis completed based on the
-                          patient's health parameters.
+                          Result returned by the configured Spring Boot and ML service for this submission.
                         </p>
 
                       </div>
@@ -544,45 +671,52 @@ function App() {
 
                       <div>
                         <span>Disease Type</span>
-                        <strong>
-                          {prediction.diseaseType}
-                        </strong>
+                        <strong>{prediction.diseaseType || "Not provided"}</strong>
                       </div>
 
                       <div>
                         <span>Prediction</span>
-                        <strong>
-                          {prediction.predictionResult}
-                        </strong>
+                        <strong>{prediction.predictionResult || "Not provided"}</strong>
                       </div>
 
                       <div>
                         <span>Risk Level</span>
                         <strong
-                          className={
-                            isHighRisk
-                              ? "red-text"
-                              : "green-text"
-                          }
+                          className={isHighRisk ? "red-text" : isLowRisk ? "green-text" : ""}
                         >
-                          {prediction.riskLevel}
+                          {prediction.riskLevel || "Unclassified"}
                         </strong>
                       </div>
 
                       <div>
                         <span>Probability</span>
-                        <strong>
-                          {probability}%
-                        </strong>
+                        <strong>{probability == null ? "Not provided" : `${probability}%`}</strong>
                       </div>
 
+                    </div>
+
+                    {probability != null && (
+                      <div className="probability-meter">
+                        <div className="probability-meter-label"><span>Estimated risk probability</span><strong>{probability}%</strong></div>
+                        <div className="probability-track" role="progressbar" aria-label="Estimated risk probability" aria-valuemin="0" aria-valuemax="100" aria-valuenow={probability}>
+                          <span className={isHighRisk ? "probability-fill probability-fill-high" : isLowRisk ? "probability-fill" : "probability-fill probability-fill-unknown"} style={{ width: `${probability}%` }} />
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="prediction-provenance">
+                      <span>Patient: <strong>{prediction.patient?.name || "Not returned"}</strong></span>
+                      {prediction.patient?.id != null && <span>Patient ID: <strong>{prediction.patient.id}</strong></span>}
+                      {prediction.patient?.age != null && <span>Age: <strong>{prediction.patient.age}</strong></span>}
+                      {prediction.patient?.gender && <span>Gender: <strong>{formatGender(prediction.patient.gender)}</strong></span>}
+                      <span>Recorded: <strong>{prediction.createdAt || prediction.timestamp || prediction.predictedAt ? new Date(prediction.createdAt || prediction.timestamp || prediction.predictedAt).toLocaleString() : "Timestamp unavailable"}</strong></span>
                     </div>
 
                     <div className="reported-symptoms-card">
                       <div className="symptoms-result-heading">
                         <div>
                           <h3>Patient-reported symptoms</h3>
-                          <p>Context recorded from the form; not analyzed by the AI model.</p>
+                          <p>Local page context only; not sent to the model or saved by the backend.</p>
                         </div>
                         {prediction.reportedSymptoms?.temperatureC != null && (
                           <span className="temperature-badge">🌡 {prediction.reportedSymptoms.temperatureC} °C</span>
@@ -610,18 +744,30 @@ function App() {
 
 
                     <div className="ai-insight">
-
-                      <h3>💡 AI Insight</h3>
-
+                      <h3>Model response</h3>
                       <p>
-                        Based on the provided health parameters,
-                        the Machine Learning model has analyzed
-                        the patient's potential disease risk.
-                        Further medical consultation is recommended
-                        for high-risk predictions.
+                        {prediction.modelExplanation
+                          || (explainability
+                            ? "The backend returned additional explainability information below."
+                            : null)
+                          || "The backend returned the classification and probability above. Feature-level explainability is not included in this prediction response."}
+                        {" "}This academic result is not a medical diagnosis.
                       </p>
-
                     </div>
+
+                    {explainabilityEntries.length > 0 && (
+                      <section className="explainability-card" aria-labelledby="explainability-title">
+                        <h3 id="explainability-title">Model explainability returned by the service</h3>
+                        <dl>
+                          {explainabilityEntries.map(([label, value], index) => (
+                            <div key={`${label}-${index}`}>
+                              <dt>{label}</dt>
+                              <dd>{value}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      </section>
+                    )}
 
 
                     <div className="technology-result">
@@ -633,7 +779,7 @@ function App() {
 
                       <div>
                         ⬡
-                        <span>Blockchain</span>
+                        <span>Hash-chain audit</span>
                       </div>
 
                       <div>
@@ -665,7 +811,7 @@ function App() {
                 </div>
 
                 <p>
-                  Blockchain is an architectural concept in this project; this demo does not connect to a blockchain network.
+                  The backend maintains a MySQL-backed SHA-256 audit hash chain. This academic demo does not connect to a distributed blockchain network.
                 </p>
 
                 <div className="blockchain-status">

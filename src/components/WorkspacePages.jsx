@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { api, probabilityPercent } from "../api";
 
 const hospitalNodes = [
   { id: "HSP-001", name: "Central General Hospital", location: "Bengaluru, Karnataka", specialty: "General Medicine", status: "Online", lastSync: "Just now" },
@@ -30,19 +31,82 @@ function EmptyState({ icon, title, description }) {
   );
 }
 
-export function PatientsPage({ patients, onAddPatient, onDeletePatient }) {
+function normalizeGender(gender) {
+  const value = String(gender || "").trim().toLowerCase();
+  if (["male", "m", "0"].includes(value)) return "Male";
+  if (["female", "f", "1"].includes(value)) return "Female";
+  return "";
+}
+
+export function PatientsPage({ patients, loading, error, actionError, actionLoading, onRetry, onAddPatient, onUpdatePatient, onDeletePatient }) {
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: "", age: "", gender: "", email: "", phone: "" });
+  const [editingPatient, setEditingPatient] = useState(null);
+  const [form, setForm] = useState({
+    name: "",
+    age: "",
+    gender: "",
+    email: "",
+    phone: "",
+    bloodPressure: "",
+    glucose: "",
+    bmi: "",
+    heartRate: "",
+    cholesterol: "",
+  });
   const filteredPatients = patients.filter((patient) =>
-    `${patient.name} ${patient.email} ${patient.phone}`.toLowerCase().includes(search.toLowerCase()),
+    `${patient.name || ""} ${patient.email || ""} ${patient.phone || ""}`.toLowerCase().includes(search.toLowerCase()),
   );
 
-  const submitPatient = (event) => {
-    event.preventDefault();
-    onAddPatient({ ...form, age: Number(form.age), id: crypto.randomUUID(), createdAt: new Date().toISOString() });
-    setForm({ name: "", age: "", gender: "", email: "", phone: "" });
+  const resetForm = () => {
+    setForm({
+      name: "",
+      age: "",
+      gender: "",
+      email: "",
+      phone: "",
+      bloodPressure: "",
+      glucose: "",
+      bmi: "",
+      heartRate: "",
+      cholesterol: "",
+    });
+    setEditingPatient(null);
     setShowForm(false);
+  };
+
+  const submitPatient = async (event) => {
+    event.preventDefault();
+    const patientData = {
+      ...form,
+      age: Number(form.age),
+      bloodPressure: form.bloodPressure ? Number(form.bloodPressure) : null,
+      glucose: form.glucose ? Number(form.glucose) : null,
+      bmi: form.bmi ? Number(form.bmi) : null,
+      heartRate: form.heartRate ? Number(form.heartRate) : null,
+      cholesterol: form.cholesterol ? Number(form.cholesterol) : null,
+    };
+    const saved = editingPatient
+      ? await onUpdatePatient(editingPatient.id, patientData)
+      : await onAddPatient(patientData);
+    if (saved) resetForm();
+  };
+
+  const startEditing = (patient) => {
+    setEditingPatient(patient);
+    setForm({
+      name: patient.name || "",
+      age: patient.age == null ? "" : String(patient.age),
+      gender: normalizeGender(patient.gender),
+      email: patient.email || "",
+      phone: patient.phone || "",
+      bloodPressure: patient.bloodPressure == null ? "" : String(patient.bloodPressure),
+      glucose: patient.glucose == null ? "" : String(patient.glucose),
+      bmi: patient.bmi == null ? "" : String(patient.bmi),
+      heartRate: patient.heartRate == null ? "" : String(patient.heartRate),
+      cholesterol: patient.cholesterol == null ? "" : String(patient.cholesterol),
+    });
+    setShowForm(true);
   };
 
   return (
@@ -50,38 +114,49 @@ export function PatientsPage({ patients, onAddPatient, onDeletePatient }) {
       <PageHeading
         eyebrow="PATIENT DIRECTORY"
         title="Patients"
-        description="Manage the patient records saved on this device. Records are stored locally in this browser."
-        action={<button className="primary-action" onClick={() => setShowForm((visible) => !visible)}>{showForm ? "Cancel" : "+ Add patient"}</button>}
+        description="Manage patient records from the configured Spring Boot backend. Patient data is not stored in this browser."
+        action={<button className="primary-action" type="button" onClick={() => { if (showForm) resetForm(); else setShowForm(true); }}>{showForm ? "Cancel" : "+ Add patient"}</button>}
       />
       {showForm && (
         <form className="inline-form" onSubmit={submitPatient}>
-          <h2>Add a patient record</h2>
+          <h2>{editingPatient ? "Update patient record" : "Add a patient record"}</h2>
+          {actionError && <div className="page-error" role="alert">{actionError}</div>}
           <div className="inline-form-grid">
-            <label>Full name<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Patient name" /></label>
-            <label>Age<input required min="0" max="120" type="number" value={form.age} onChange={(event) => setForm({ ...form, age: event.target.value })} placeholder="Age" /></label>
-            <label>Gender<select value={form.gender} onChange={(event) => setForm({ ...form, gender: event.target.value })}><option value="">Select</option><option>Female</option><option>Male</option><option>Other</option><option>Prefer not to say</option></select></label>
-            <label>Phone<input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="Phone number" /></label>
-            <label>Email<input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="Email address" /></label>
+            <label>Full name<input required maxLength="120" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Patient name" /></label>
+            <label>Age<input required min="1" max="120" type="number" value={form.age} onChange={(event) => setForm({ ...form, age: event.target.value })} placeholder="Age" /></label>
+            <label>Gender<select required value={form.gender} onChange={(event) => setForm({ ...form, gender: event.target.value })}><option value="">Select</option><option>Female</option><option>Male</option></select></label>
+            <label>Phone<input type="tel" maxLength="30" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="Phone number" /></label>
+            <label>Email<input type="email" maxLength="254" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="Email address" /></label>
+            <label>Blood pressure (mmHg)<input type="number" min="40" max="300" value={form.bloodPressure} onChange={(event) => setForm({ ...form, bloodPressure: event.target.value })} placeholder="Optional" /></label>
+            <label>Glucose (mg/dL)<input type="number" min="20" max="1000" value={form.glucose} onChange={(event) => setForm({ ...form, glucose: event.target.value })} placeholder="Optional" /></label>
+            <label>BMI<input type="number" min="5" max="100" step="0.1" value={form.bmi} onChange={(event) => setForm({ ...form, bmi: event.target.value })} placeholder="Optional" /></label>
+            <label>Heart rate (bpm)<input type="number" min="20" max="250" value={form.heartRate} onChange={(event) => setForm({ ...form, heartRate: event.target.value })} placeholder="Optional" /></label>
+            <label>Cholesterol (mg/dL)<input type="number" min="50" max="1000" value={form.cholesterol} onChange={(event) => setForm({ ...form, cholesterol: event.target.value })} placeholder="Optional" /></label>
           </div>
-          <button className="primary-action" type="submit">Save patient</button>
+          <button className="primary-action" type="submit" disabled={actionLoading}>{actionLoading ? "Saving…" : editingPatient ? "Update patient" : "Save patient"}</button>
         </form>
       )}
+      {actionError && !showForm && <div className="page-error" role="alert">{actionError}</div>}
       <div className="page-toolbar">
         <label className="search-field"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search patients" /></label>
         <span>{filteredPatients.length} {filteredPatients.length === 1 ? "record" : "records"}</span>
       </div>
-      {filteredPatients.length === 0 ? (
+      {error ? (
+        <div className="page-error" role="alert"><div><strong>Patient records could not be loaded.</strong><p>{error}</p></div><button className="secondary-action" type="button" onClick={onRetry}>Retry</button></div>
+      ) : loading ? (
+        <div className="page-loading" role="status">Loading backend patient records…</div>
+      ) : filteredPatients.length === 0 ? (
         <EmptyState icon="♙" title={search ? "No matching patients" : "No patient records yet"} description={search ? "Try a different name, email, or phone number." : "Add a patient here or save one when a prediction is completed."} />
       ) : (
-        <div className="data-table-wrap"><table className="data-table"><thead><tr><th>Patient</th><th>Age</th><th>Gender</th><th>Contact</th><th>Added</th><th>Action</th></tr></thead><tbody>
-          {filteredPatients.map((patient) => <tr key={patient.id}><td><strong>{patient.name}</strong></td><td>{patient.age || "—"}</td><td>{patient.gender || "—"}</td><td>{patient.email || patient.phone || "—"}</td><td>{patient.createdAt ? new Date(patient.createdAt).toLocaleDateString() : "—"}</td><td><button className="text-action danger-action" onClick={() => onDeletePatient(patient.id)} aria-label={`Delete ${patient.name}`}>Remove</button></td></tr>)}
+        <div className="data-table-wrap"><table className="data-table"><thead><tr><th>Patient</th><th>Patient ID</th><th>Age</th><th>Gender</th><th>Contact</th><th>Actions</th></tr></thead><tbody>
+          {filteredPatients.map((patient, index) => <tr key={patient.id ?? `${patient.name}-${index}`}><td><strong>{patient.name || "Unnamed patient"}</strong></td><td>{patient.id ?? "—"}</td><td>{patient.age ?? "—"}</td><td>{normalizeGender(patient.gender) || patient.gender || "—"}</td><td>{patient.email || patient.phone || "—"}</td><td><div className="row-actions"><button className="text-action" type="button" disabled={actionLoading || patient.id == null} onClick={() => startEditing(patient)}>Edit</button><button className="text-action danger-action" type="button" disabled={actionLoading || patient.id == null} onClick={() => { if (window.confirm(`Delete the patient record for ${patient.name || "this patient"}? This cannot be undone.`)) onDeletePatient(patient.id); }} aria-label={`Delete ${patient.name || "patient"}`}>Delete</button></div></td></tr>)}
         </tbody></table></div>
       )}
     </section>
   );
 }
 
-export function HistoryPage({ history, onClearHistory, onExport }) {
+export function HistoryPage({ history, loading, error, actionError, actionLoading, onRetry, onClearHistory, onExport }) {
   const [search, setSearch] = useState("");
   const filteredHistory = history.filter((record) =>
     `${record.patient?.name || ""} ${record.diseaseType || ""} ${record.riskLevel || ""}`.toLowerCase().includes(search.toLowerCase()),
@@ -89,11 +164,13 @@ export function HistoryPage({ history, onClearHistory, onExport }) {
 
   return (
     <section className="workspace-page">
-      <PageHeading eyebrow="MODEL ACTIVITY" title="Prediction history" description="Review completed prediction responses returned by the connected service." action={<div className="heading-actions"><button className="secondary-action" onClick={() => onExport(filteredHistory, "prediction-history.csv")}>Export CSV</button><button className="secondary-action danger-action" onClick={onClearHistory} disabled={!history.length}>Clear history</button></div>} />
+      <PageHeading eyebrow="MODEL ACTIVITY" title="Prediction history" description="Review completed prediction responses loaded from the backend." action={<div className="heading-actions"><button className="secondary-action" type="button" onClick={() => onExport(filteredHistory, "prediction-history.csv")} disabled={!filteredHistory.length}>Export CSV</button><button className="secondary-action danger-action" type="button" onClick={() => { if (window.confirm("Delete all prediction history from the backend? This cannot be undone.")) onClearHistory(); }} disabled={!history.length || actionLoading}>Clear history</button><button className="secondary-action" type="button" onClick={onRetry}>↻ Refresh</button></div>} />
+      {actionError && <div className="page-error" role="alert">{actionError}</div>}
+      {error && <div className="page-error" role="alert"><div><strong>Prediction history could not be loaded.</strong><p>{error}</p></div><button className="secondary-action" type="button" onClick={onRetry}>Retry</button></div>}
       <div className="page-toolbar"><label className="search-field"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search patient, disease, or risk" /></label><span>{filteredHistory.length} predictions</span></div>
-      {filteredHistory.length === 0 ? <EmptyState icon="◷" title={search ? "No matching predictions" : "No predictions recorded"} description={search ? "Try another search term." : "Completed predictions will appear here after the prediction service responds."} /> : (
+      {loading ? <div className="page-loading" role="status">Loading backend prediction history…</div> : error ? null : filteredHistory.length === 0 ? <EmptyState icon="◷" title={search ? "No matching predictions" : "No predictions recorded"} description={search ? "Try another search term." : "Completed predictions will appear here after the prediction service responds."} /> : (
         <div className="data-table-wrap"><table className="data-table"><thead><tr><th>Date</th><th>Patient</th><th>Disease</th><th>Result</th><th>Risk</th><th>Probability</th></tr></thead><tbody>
-          {filteredHistory.map((record) => <tr key={record.id}><td>{new Date(record.createdAt).toLocaleString()}</td><td>{record.patient?.name || "—"}</td><td>{record.diseaseType || "—"}</td><td>{record.predictionResult || "—"}</td><td><span className={`status-pill ${String(record.riskLevel).toLowerCase().includes("high") ? "status-danger" : "status-success"}`}>{record.riskLevel || "Unknown"}</span></td><td>{Number(record.probability) <= 1 ? `${Math.round(Number(record.probability) * 100)}%` : `${Math.round(Number(record.probability))}%`}</td></tr>)}
+          {filteredHistory.map((record, index) => { const probability = probabilityPercent(record.probability); const probabilityText = probability == null ? "—" : `${probability}%`; const risk = String(record.riskLevel || "Unknown"); const riskClass = risk.toLowerCase().includes("high") ? "status-danger" : risk.toLowerCase().includes("low") ? "status-success" : "status-warning"; return <tr key={record.id ?? record.predictionId ?? index}><td>{record.createdAt || record.timestamp || record.predictedAt ? new Date(record.createdAt || record.timestamp || record.predictedAt).toLocaleString() : "—"}</td><td>{record.patient?.name || record.patientName || "—"}</td><td>{record.diseaseType || "—"}</td><td>{record.predictionResult || "—"}</td><td><span className={`status-pill ${riskClass}`}>{risk}</span></td><td>{probabilityText}</td></tr>; })}
         </tbody></table></div>
       )}
     </section>
@@ -102,30 +179,85 @@ export function HistoryPage({ history, onClearHistory, onExport }) {
 
 export function HospitalNodesPage() {
   const [lastChecked, setLastChecked] = useState(null);
-  const onlineCount = hospitalNodes.filter((node) => node.status === "Online").length;
   return (
     <section className="workspace-page">
-      <PageHeading eyebrow="FEDERATED NETWORK" title="Hospital nodes" description="View the sample hospital network configured for federated learning." action={<button className="secondary-action" onClick={() => setLastChecked(new Date())}>↻ Refresh status</button>} />
-      {lastChecked && <div className="inline-notice" role="status">Node list refreshed locally at {lastChecked.toLocaleTimeString()}. Live connectivity requires a configured backend.</div>}
-      <div className="overview-cards"><article><span>Configured nodes</span><strong>{hospitalNodes.length}</strong></article><article><span>Online in sample data</span><strong>{onlineCount}</strong></article><article><span>Network coverage</span><strong>Federated</strong></article></div>
-      <div className="node-grid">{hospitalNodes.map((node) => <article className="node-card" key={node.id}><div className="node-card-top"><span className="node-icon">▦</span><span className={`status-pill ${node.status === "Online" ? "status-success" : "status-warning"}`}>{node.status}</span></div><span className="page-eyebrow">{node.id}</span><h2>{node.name}</h2><p>{node.location}</p><div className="node-meta"><span>Specialty</span><strong>{node.specialty}</strong></div><div className="node-meta"><span>Last sync (sample)</span><strong>{node.lastSync}</strong></div></article>)}</div>
-      <p className="disclaimer-note">Node names and statuses shown here are illustrative sample data; no live hospital connections are configured.</p>
+      <PageHeading eyebrow="FEDERATED NETWORK" title="Hospital nodes" description="Illustrative node cards for the academic federated-learning concept; no live hospital clients are connected." action={<button className="secondary-action" type="button" onClick={() => setLastChecked(new Date())}>↻ Refresh sample</button>} />
+      {lastChecked && <div className="inline-notice" role="status">Sample node list refreshed locally at {lastChecked.toLocaleTimeString()}. This does not check live connectivity.</div>}
+      <div className="overview-cards"><article><span>Simulated nodes</span><strong>{hospitalNodes.length}</strong></article><article><span>Live federated clients</span><strong>Not connected</strong></article><article><span>Network status</span><strong>Academic demo</strong></article></div>
+      <div className="node-grid">{hospitalNodes.map((node) => <article className="node-card" key={node.id}><div className="node-card-top"><span className="node-icon">▦</span><span className="status-pill status-warning">Simulated</span></div><span className="page-eyebrow">{node.id}</span><h2>{node.name}</h2><p>{node.location}</p><div className="node-meta"><span>Specialty (sample)</span><strong>{node.specialty}</strong></div><div className="node-meta"><span>Last sync (sample)</span><strong>{node.lastSync}</strong></div></article>)}</div>
     </section>
   );
 }
 
 export function BlockchainPage({ history, onExport }) {
+  const [verification, setVerification] = useState(null);
+  const [verificationError, setVerificationError] = useState("");
+  const [verifying, setVerifying] = useState(false);
+
+  const verifyIntegrity = async () => {
+    setVerifying(true);
+    setVerification(null);
+    setVerificationError("");
+    try {
+      setVerification(await api.verifyIntegrity());
+    } catch (error) {
+      setVerification(null);
+      setVerificationError(error.message);
+    } finally {
+      setVerifying(false);
+    }
+  };
+
   return (
     <section className="workspace-page">
-      <PageHeading eyebrow="AUDIT & INTEGRITY" title="Blockchain audit" description="Local audit view for prediction records saved by this browser." action={<button className="secondary-action" onClick={() => onExport(history, "edps-audit-records.csv")}>Export audit CSV</button>} />
-      <div className="audit-banner"><span>⬡</span><div><strong>Local audit log</strong><p>This interface does not connect to a blockchain network. Entries below are browser records, not on-chain proofs.</p></div></div>
-      <div className="overview-cards"><article><span>Saved records</span><strong>{history.length}</strong></article><article><span>Integrity proof</span><strong>Not connected</strong></article><article><span>Storage</span><strong>This browser</strong></article></div>
-      {history.length === 0 ? <EmptyState icon="⬡" title="No audit entries yet" description="Prediction responses saved to history will be listed here." /> : <div className="audit-list">{history.map((record) => <article className="audit-entry" key={record.id}><div className="audit-marker">✓</div><div><strong>{record.patient?.name || "Patient record"} · {record.diseaseType || "Prediction"}</strong><p>{record.riskLevel || "Result saved"} · {new Date(record.createdAt).toLocaleString()}</p><code>{record.id}</code></div></article>)}</div>}
+      <PageHeading
+        eyebrow="AUDIT & INTEGRITY"
+        title="Blockchain audit"
+        description="Verify the backend's MySQL-backed SHA-256 hash chain. This is an academic integrity demonstration, not a distributed blockchain network."
+        action={<div className="heading-actions"><button className="secondary-action" type="button" onClick={() => onExport(history, "edps-prediction-history.csv")} disabled={!history.length}>Export history CSV</button><button className="primary-action" type="button" onClick={verifyIntegrity} disabled={verifying}>{verifying ? "Verifying…" : "Verify integrity"}</button></div>}
+      />
+      {verificationError ? (
+        <div className="page-error" role="alert">
+          <div><strong>Integrity verification could not be completed.</strong><p>{verificationError}</p></div>
+          <button className="secondary-action" type="button" onClick={verifyIntegrity} disabled={verifying}>Retry verification</button>
+        </div>
+      ) : verification ? (
+        <>
+          <div className={`audit-banner ${verification.valid ? "audit-verified" : "audit-invalid"}`} role="status">
+            <span aria-hidden="true">{verification.valid ? "✓" : "!"}</span>
+            <div>
+              <strong>{verification.valid ? "Backend integrity check passed" : "Backend integrity check failed"}</strong>
+              <p>{verification.valid
+                ? "The backend verified the hash chain for all records checked."
+                : `The backend reported a broken or invalid chain${verification.brokenReference ? ` at ${verification.brokenReference}` : ""}.`}</p>
+            </div>
+          </div>
+          <div className="overview-cards">
+            <article><span>Backend prediction records</span><strong>{history.length}</strong></article>
+            <article><span>Audit records checked</span><strong>{verification.checkedRecords ?? "—"}</strong></article>
+            <article><span>Verification time</span><strong>{verification.verifiedAt ? new Date(verification.verifiedAt).toLocaleString() : "Not provided"}</strong></article>
+          </div>
+          {verification.brokenReference && <p className="disclaimer-note">Backend-reported broken reference: <code>{verification.brokenReference}</code></p>}
+        </>
+      ) : (
+        <>
+          <div className="audit-banner" role="status">
+            <span aria-hidden="true">⬡</span>
+            <div><strong>Verification not run</strong><p>Prediction history is backend data, but it is not proof of integrity until the verification endpoint confirms the hash chain.</p></div>
+          </div>
+          <div className="overview-cards">
+            <article><span>Backend prediction records</span><strong>{history.length}</strong></article>
+            <article><span>Audit records checked</span><strong>—</strong></article>
+            <article><span>Verification endpoint</span><strong>Not checked</strong></article>
+          </div>
+        </>
+      )}
+      <p className="disclaimer-note">Verification uses GET /integrity/audit/verify. The backend currently returns an integrity summary rather than a list of individually verified prediction records.</p>
     </section>
   );
 }
 
-export function AnalyticsPage({ patients, history }) {
+export function AnalyticsPage({ patients, history, loading, patientError, historyError, onRetry }) {
   const riskCounts = useMemo(() => history.reduce((counts, item) => {
     const key = String(item.riskLevel || "Unknown").toLowerCase().includes("high") ? "High risk" : "Low / other";
     counts[key] = (counts[key] || 0) + 1;
@@ -134,7 +266,9 @@ export function AnalyticsPage({ patients, history }) {
   const total = history.length;
   return (
     <section className="workspace-page">
-      <PageHeading eyebrow="OVERVIEW & TRENDS" title="Analytics" description="A summary of locally saved patient and prediction records. No clinical conclusions are generated here." />
+      <PageHeading eyebrow="OVERVIEW & TRENDS" title="Analytics" description="A summary of patient and prediction records returned by the backend. No clinical conclusions are generated here." />
+      {(patientError || historyError) && <div className="page-error" role="alert"><div><strong>Analytics data could not be fully loaded.</strong>{patientError && <p>{patientError}</p>}{historyError && <p>{historyError}</p>}</div><button className="secondary-action" type="button" onClick={onRetry}>Retry</button></div>}
+      {loading && <div className="page-loading" role="status">Loading backend data…</div>}
       <div className="overview-cards"><article><span>Patient records</span><strong>{patients.length}</strong></article><article><span>Completed predictions</span><strong>{total}</strong></article><article><span>High-risk results</span><strong>{riskCounts["High risk"]}</strong></article></div>
       <div className="analytics-panel"><div className="section-title"><div><h2>Prediction outcomes</h2><p>Counts from saved service responses only</p></div><span>{total} total</span></div>{total === 0 ? <EmptyState icon="▥" title="Not enough data yet" description="Run a prediction with the connected service to populate these summaries." /> : <div className="bar-chart" aria-label="Prediction outcome counts">{Object.entries(riskCounts).map(([label, count]) => <div className="bar-row" key={label}><span>{label}</span><div className="bar-track"><div className={label === "High risk" ? "bar-fill bar-fill-danger" : "bar-fill"} style={{ width: `${Math.max((count / total) * 100, 3)}%` }} /></div><strong>{count}</strong></div>)}</div>}</div>
       <p className="disclaimer-note">This dashboard is operational reporting only and is not a substitute for professional medical advice.</p>
@@ -146,8 +280,8 @@ export function AboutPage() {
   return (
     <section className="workspace-page">
       <PageHeading eyebrow="ABOUT THE PROJECT" title="About EDPS" description="Early Disease Prediction System · VTU Final Year CSE Project" />
-      <div className="about-card"><div className="about-mark">✚</div><div><h2>Early Disease Prediction System</h2><p>EDPS is a project interface for exploring a connected disease-risk prediction service, patient record management, and federated healthcare concepts.</p><div className="about-feature-list"><span>AI / machine-learning service integration</span><span>Patient records saved locally in this browser</span><span>Sample hospital-node directory</span><span>Local prediction activity and audit views</span></div></div></div>
-      <div className="inline-notice">Predictions require the configured backend service. This application is a project demonstration and does not provide medical diagnosis or emergency care.</div>
+      <div className="about-card"><div className="about-mark">✚</div><div><h2>Early Disease Prediction System</h2><p>EDPS is an academic demonstration interface for a connected disease-risk prediction service, patient record management, and federated healthcare concepts.</p><div className="about-feature-list"><span>Spring Boot API and Python ML service integration</span><span>Patient records managed by backend endpoints</span><span>Simulated hospital-node directory</span><span>Backend prediction activity and integrity verification view</span></div></div></div>
+      <div className="inline-notice">Authentication is pending backend support; this interface does not provide a secure login. Predictions are educational only, are not medical diagnoses, and must not be used for treatment decisions or emergencies.</div>
     </section>
   );
 }

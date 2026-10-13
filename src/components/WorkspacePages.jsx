@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, probabilityPercent } from "../api";
 
 const hospitalNodes = [
@@ -42,6 +42,7 @@ export function PatientsPage({ patients, loading, error, actionError, actionLoad
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editingPatient, setEditingPatient] = useState(null);
+  const [successMessage, setSuccessMessage] = useState("");
   const [form, setForm] = useState({
     name: "",
     age: "",
@@ -77,9 +78,14 @@ export function PatientsPage({ patients, loading, error, actionError, actionLoad
 
   const submitPatient = async (event) => {
     event.preventDefault();
+    setSuccessMessage("");
+    const wasEditing = Boolean(editingPatient);
     const patientData = {
-      ...form,
+      name: form.name.trim(),
       age: Number(form.age),
+      gender: form.gender,
+      phone: form.phone.trim() || null,
+      email: form.email.trim() || null,
       bloodPressure: form.bloodPressure ? Number(form.bloodPressure) : null,
       glucose: form.glucose ? Number(form.glucose) : null,
       bmi: form.bmi ? Number(form.bmi) : null,
@@ -89,7 +95,10 @@ export function PatientsPage({ patients, loading, error, actionError, actionLoad
     const saved = editingPatient
       ? await onUpdatePatient(editingPatient.id, patientData)
       : await onAddPatient(patientData);
-    if (saved) resetForm();
+    if (saved) {
+      resetForm();
+      setSuccessMessage(wasEditing ? "Patient record updated in the backend." : "Patient record created in the backend.");
+    }
   };
 
   const startEditing = (patient) => {
@@ -115,23 +124,24 @@ export function PatientsPage({ patients, loading, error, actionError, actionLoad
         eyebrow="PATIENT DIRECTORY"
         title="Patients"
         description="Manage patient records from the configured Spring Boot backend. Patient data is not stored in this browser."
-        action={<button className="primary-action" type="button" onClick={() => { if (showForm) resetForm(); else setShowForm(true); }}>{showForm ? "Cancel" : "+ Add patient"}</button>}
+        action={<button className="primary-action" type="button" onClick={() => { if (showForm) resetForm(); else { setSuccessMessage(""); setShowForm(true); } }}>{showForm ? "Cancel" : "+ Add patient"}</button>}
       />
+      {successMessage && <div className="inline-notice" role="status">{successMessage}</div>}
       {showForm && (
         <form className="inline-form" onSubmit={submitPatient}>
           <h2>{editingPatient ? "Update patient record" : "Add a patient record"}</h2>
           {actionError && <div className="page-error" role="alert">{actionError}</div>}
           <div className="inline-form-grid">
-            <label>Full name<input required maxLength="120" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Patient name" /></label>
-            <label>Age<input required min="1" max="120" type="number" value={form.age} onChange={(event) => setForm({ ...form, age: event.target.value })} placeholder="Age" /></label>
+            <label>Full name<input required pattern=".*\S.*" title="Enter a name with at least one non-space character." maxLength="120" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Patient name" /></label>
+            <label>Age<input required min="1" max="120" step="1" type="number" value={form.age} onChange={(event) => setForm({ ...form, age: event.target.value })} placeholder="Age" /></label>
             <label>Gender<select required value={form.gender} onChange={(event) => setForm({ ...form, gender: event.target.value })}><option value="">Select</option><option>Female</option><option>Male</option></select></label>
             <label>Phone<input type="tel" maxLength="30" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="Phone number" /></label>
             <label>Email<input type="email" maxLength="254" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="Email address" /></label>
-            <label>Blood pressure (mmHg)<input type="number" min="40" max="300" value={form.bloodPressure} onChange={(event) => setForm({ ...form, bloodPressure: event.target.value })} placeholder="Optional" /></label>
-            <label>Glucose (mg/dL)<input type="number" min="20" max="1000" value={form.glucose} onChange={(event) => setForm({ ...form, glucose: event.target.value })} placeholder="Optional" /></label>
-            <label>BMI<input type="number" min="5" max="100" step="0.1" value={form.bmi} onChange={(event) => setForm({ ...form, bmi: event.target.value })} placeholder="Optional" /></label>
-            <label>Heart rate (bpm)<input type="number" min="20" max="250" value={form.heartRate} onChange={(event) => setForm({ ...form, heartRate: event.target.value })} placeholder="Optional" /></label>
-            <label>Cholesterol (mg/dL)<input type="number" min="50" max="1000" value={form.cholesterol} onChange={(event) => setForm({ ...form, cholesterol: event.target.value })} placeholder="Optional" /></label>
+            <label>Blood pressure (mmHg)<input required type="number" min="1" max="400" value={form.bloodPressure} onChange={(event) => setForm({ ...form, bloodPressure: event.target.value })} placeholder="e.g. 120" /></label>
+            <label>Glucose (mg/dL)<input required type="number" min="1" max="1000" value={form.glucose} onChange={(event) => setForm({ ...form, glucose: event.target.value })} placeholder="e.g. 100" /></label>
+            <label>BMI<input required type="number" min="0.1" max="100" step="0.1" value={form.bmi} onChange={(event) => setForm({ ...form, bmi: event.target.value })} placeholder="e.g. 24.5" /></label>
+            <label>Heart rate (bpm)<input required type="number" min="1" max="300" value={form.heartRate} onChange={(event) => setForm({ ...form, heartRate: event.target.value })} placeholder="e.g. 72" /></label>
+            <label>Cholesterol (mg/dL)<input required type="number" min="1" max="1000" value={form.cholesterol} onChange={(event) => setForm({ ...form, cholesterol: event.target.value })} placeholder="e.g. 180" /></label>
           </div>
           <button className="primary-action" type="submit" disabled={actionLoading}>{actionLoading ? "Saving…" : editingPatient ? "Update patient" : "Save patient"}</button>
         </form>
@@ -179,12 +189,106 @@ export function HistoryPage({ history, loading, error, actionError, actionLoadin
 
 export function HospitalNodesPage() {
   const [lastChecked, setLastChecked] = useState(null);
+  const [federatedResults, setFederatedResults] = useState(null);
+  const [federatedLoading, setFederatedLoading] = useState(true);
+  const [federatedError, setFederatedError] = useState("");
+
+  const loadFederatedResults = useCallback(async () => {
+    setFederatedLoading(true);
+    setFederatedError("");
+    try {
+      setFederatedResults(await api.getFederatedResults());
+    } catch (error) {
+      setFederatedResults(null);
+      setFederatedError(error.message || "Federated simulation results could not be loaded.");
+    } finally {
+      setFederatedLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const syncResults = async () => {
+      if (!mounted) return;
+      await loadFederatedResults();
+    };
+
+    syncResults();
+
+    return () => {
+      mounted = false;
+    };
+  }, [loadFederatedResults]);
+
+  const roundMetrics = federatedResults?.round_metrics
+    || federatedResults?.round_history
+    || federatedResults?.round_results
+    || [];
+  const progress = federatedResults
+    ? Math.round(Math.min(1, Number(federatedResults.rounds_completed ?? federatedResults.rounds) / federatedResults.rounds) * 100)
+    : 0;
+
   return (
     <section className="workspace-page">
       <PageHeading eyebrow="FEDERATED NETWORK" title="Hospital nodes" description="Illustrative node cards for the academic federated-learning concept; no live hospital clients are connected." action={<button className="secondary-action" type="button" onClick={() => setLastChecked(new Date())}>↻ Refresh sample</button>} />
       {lastChecked && <div className="inline-notice" role="status">Sample node list refreshed locally at {lastChecked.toLocaleTimeString()}. This does not check live connectivity.</div>}
       <div className="overview-cards"><article><span>Simulated nodes</span><strong>{hospitalNodes.length}</strong></article><article><span>Live federated clients</span><strong>Not connected</strong></article><article><span>Network status</span><strong>Academic demo</strong></article></div>
       <div className="node-grid">{hospitalNodes.map((node) => <article className="node-card" key={node.id}><div className="node-card-top"><span className="node-icon">▦</span><span className="status-pill status-warning">Simulated</span></div><span className="page-eyebrow">{node.id}</span><h2>{node.name}</h2><p>{node.location}</p><div className="node-meta"><span>Specialty (sample)</span><strong>{node.specialty}</strong></div><div className="node-meta"><span>Last sync (sample)</span><strong>{node.lastSync}</strong></div></article>)}</div>
+      <section className="federated-results" aria-labelledby="federated-results-title">
+        <div className="section-title">
+          <div>
+            <span className="page-eyebrow">EXPERIMENTAL SIMULATION</span>
+            <h2 id="federated-results-title">FedAvg results</h2>
+            <p>Python simulation output on synthetic data. These are not live hospital training metrics.</p>
+          </div>
+          <button className="secondary-action" type="button" onClick={loadFederatedResults} disabled={federatedLoading}>
+            {federatedLoading ? "Loading…" : "Refresh results"}
+          </button>
+        </div>
+        {federatedError ? (
+          <div className="page-error" role="alert">
+            <div><strong>Simulation results are unavailable.</strong><p>{federatedError}</p></div>
+            <button className="secondary-action" type="button" onClick={loadFederatedResults} disabled={federatedLoading}>Retry</button>
+          </div>
+        ) : federatedLoading ? (
+          <div className="page-loading" role="status">Loading versioned Python simulation results…</div>
+        ) : federatedResults ? (
+          <>
+            <div className="federated-metrics">
+              <article><span>Simulated clients</span><strong>{federatedResults.client_count}</strong></article>
+              <article><span>Communication rounds</span><strong>{federatedResults.rounds}</strong></article>
+              <article><span>Training status</span><strong>{federatedResults.status || "Completed snapshot"}</strong></article>
+              <article><span>Evaluation accuracy</span><strong>{(federatedResults.accuracy * 100).toFixed(1)}%</strong></article>
+              <article><span>Precision (class 1)</span><strong>{Number.isFinite(federatedResults.precision_class_1) ? `${(federatedResults.precision_class_1 * 100).toFixed(1)}%` : "Not reported"}</strong></article>
+              <article><span>Recall (class 1)</span><strong>{Number.isFinite(federatedResults.recall_class_1) ? `${(federatedResults.recall_class_1 * 100).toFixed(1)}%` : "Not reported"}</strong></article>
+              <article><span>F1 (class 1)</span><strong>{Number.isFinite(federatedResults.f1_class_1) ? `${(federatedResults.f1_class_1 * 100).toFixed(1)}%` : "Not reported"}</strong></article>
+            </div>
+            <div className="federated-progress">
+              <div><span>Round completion in this results snapshot</span><strong>{federatedResults.rounds_completed ?? federatedResults.rounds} / {federatedResults.rounds}</strong></div>
+              <div className="probability-track" role="progressbar" aria-label="Federated simulation round completion" aria-valuemin="0" aria-valuemax="100" aria-valuenow={progress}>
+                <span className="probability-fill" style={{ width: `${progress}%` }} />
+              </div>
+              <small>A saved simulation result represents a completed run; this is not a live training-progress stream.</small>
+            </div>
+            <div className="analytics-panel">
+              <div className="section-title"><div><h3>Per-round performance</h3><p>Only metrics emitted by the configured result file are plotted.</p></div></div>
+              {roundMetrics.length ? (
+                <div className="bar-chart" aria-label="Per-round federated performance">
+                  {roundMetrics.map((round, index) => {
+                    const accuracy = Number(round.accuracy);
+                    const value = Number.isFinite(accuracy) ? Math.max(0, Math.min(100, accuracy <= 1 ? accuracy * 100 : accuracy)) : 0;
+                    return <div className="bar-row" key={round.round ?? index}><span>Round {round.round ?? index + 1}</span><div className="bar-track"><div className="bar-fill" style={{ width: `${value}%` }} /></div><strong>{Number.isFinite(accuracy) ? `${value.toFixed(1)}%` : "—"}</strong></div>;
+                  })}
+                </div>
+              ) : (
+                <EmptyState icon="▥" title="Per-round metrics not included" description="The current Python simulator writes final evaluation metrics only. No per-round scores are fabricated; the result producer must add round_metrics to populate this chart." />
+              )}
+            </div>
+            <p className="disclaimer-note">{federatedResults.interpretation || "Experimental simulation on synthetic data only. Results are descriptive, not clinical evidence or a privacy guarantee."}</p>
+          </>
+        ) : null}
+      </section>
     </section>
   );
 }

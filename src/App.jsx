@@ -32,6 +32,9 @@ function App() {
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState("");
+  const [globalExplainability, setGlobalExplainability] = useState(null);
+  const [explainabilityLoading, setExplainabilityLoading] = useState(false);
+  const [explainabilityError, setExplainabilityError] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState("");
   const [showNotifications, setShowNotifications] = useState(false);
@@ -100,6 +103,13 @@ function App() {
     setLoading(false);
     loadHistory();
     loadPatients();
+    setGlobalExplainability(null);
+    setExplainabilityError("");
+    setExplainabilityLoading(true);
+    api.getGlobalExplainability()
+      .then(setGlobalExplainability)
+      .catch((error) => setExplainabilityError(error.message || "Global explainability is unavailable."))
+      .finally(() => setExplainabilityLoading(false));
   };
 
   const handlePredictionStart = () => {
@@ -768,6 +778,36 @@ function App() {
                         </dl>
                       </section>
                     )}
+
+                    <section className="explainability-card global-explainability" aria-labelledby="global-explainability-title">
+                      <h3 id="global-explainability-title">Global model feature importance</h3>
+                      <p>Permutation importance measured across the ML service's synthetic dataset. This is a global model-level measure, not an explanation of this patient's prediction and not a clinical effect.</p>
+                      {explainabilityLoading ? (
+                        <div className="page-loading" role="status">Loading global feature importance…</div>
+                      ) : explainabilityError ? (
+                        <div className="page-error" role="alert"><p>{explainabilityError}</p></div>
+                      ) : globalExplainability?.feature_importance?.length ? (
+                        <div className="global-importance-chart" role="img" aria-label={`Global permutation importance from ${globalExplainability.sample_count} synthetic records`}>
+                          {globalExplainability.feature_importance.map((item) => {
+                            const magnitude = Math.abs(Number(item.mean_importance));
+                            const maximum = Math.max(...globalExplainability.feature_importance.map((entry) => Math.abs(Number(entry.mean_importance))), Number.EPSILON);
+                            const width = Number.isFinite(magnitude) ? magnitude / maximum * 100 : 0;
+                            const featureName = item.feature.replaceAll("_", " ");
+                            return (
+                              <div className="global-importance-row" key={item.feature}>
+                                <span>{featureName}</span>
+                                <div className="bar-track"><div className={`bar-fill ${Number(item.mean_importance) < 0 ? "bar-fill-danger" : ""}`} style={{ width: `${width}%` }} /></div>
+                                <strong>{Number(item.mean_importance).toFixed(4)} ± {Number(item.std_importance).toFixed(4)}</strong>
+                              </div>
+                            );
+                          })}
+                          <p>{globalExplainability.note} Sample count: {globalExplainability.sample_count} synthetic records.</p>
+                        </div>
+                      ) : (
+                        <p>Global feature importance has not been returned. Prediction output remains valid without this optional explanation.</p>
+                      )}
+                      <p className="disclaimer-note">These importance scores describe model behavior on synthetic data only. They are not patient-specific explanations, causal effects, or medical advice.</p>
+                    </section>
 
 
                     <div className="technology-result">

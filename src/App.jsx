@@ -6,9 +6,12 @@ import {
   AboutPage,
   AnalyticsPage,
   BlockchainPage,
+  ExplainabilityPage,
+  FederatedLearningPage,
   HistoryPage,
   HospitalNodesPage,
   PatientsPage,
+  ServiceHealthPage,
 } from "./components/WorkspacePages";
 
 const navigationItems = [
@@ -16,8 +19,11 @@ const navigationItems = [
   { id: "prediction", icon: "♡", label: "Disease Prediction" },
   { id: "patients", icon: "♙", label: "Patients" },
   { id: "history", icon: "◷", label: "Prediction History" },
+  { id: "explainability", icon: "◈", label: "Explainable AI" },
+  { id: "federated", icon: "⇄", label: "Federated Learning" },
   { id: "nodes", icon: "▦", label: "Hospital Nodes" },
   { id: "blockchain", icon: "⬡", label: "Blockchain Audit" },
+  { id: "health", icon: "⟳", label: "Service Health & Settings" },
   { id: "analytics", icon: "▥", label: "Analytics" },
   { id: "about", icon: "ⓘ", label: "About EDPS" },
 ];
@@ -35,6 +41,10 @@ function App() {
   const [globalExplainability, setGlobalExplainability] = useState(null);
   const [explainabilityLoading, setExplainabilityLoading] = useState(false);
   const [explainabilityError, setExplainabilityError] = useState("");
+  const [backendHealth, setBackendHealth] = useState(null);
+  const [backendHealthError, setBackendHealthError] = useState("");
+  const [auditStatus, setAuditStatus] = useState(null);
+  const [auditStatusError, setAuditStatusError] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState("");
   const [showNotifications, setShowNotifications] = useState(false);
@@ -68,6 +78,25 @@ function App() {
     }
   }, []);
 
+  const refreshServiceIndicators = useCallback(async () => {
+    setBackendHealthError("");
+    setAuditStatusError("");
+    const [healthResult, auditResult] = await Promise.allSettled([
+      api.getBackendHealth(),
+      api.verifyIntegrity(),
+    ]);
+    if (healthResult.status === "fulfilled") setBackendHealth(healthResult.value);
+    else {
+      setBackendHealth(null);
+      setBackendHealthError(healthResult.reason.message || "Backend health is unavailable.");
+    }
+    if (auditResult.status === "fulfilled") setAuditStatus(auditResult.value);
+    else {
+      setAuditStatus(null);
+      setAuditStatusError(auditResult.reason.message || "Audit verification is unavailable.");
+    }
+  }, []);
+
   useEffect(() => {
     let active = true;
 
@@ -92,6 +121,13 @@ function App() {
       .finally(() => {
         if (active) setHistoryLoading(false);
       });
+
+    api.getBackendHealth()
+      .then((status) => { if (active) setBackendHealth(status); })
+      .catch((error) => { if (active) setBackendHealthError(error.message || "Backend health is unavailable."); });
+    api.verifyIntegrity()
+      .then((status) => { if (active) setAuditStatus(status); })
+      .catch((error) => { if (active) setAuditStatusError(error.message || "Audit verification is unavailable."); });
 
     return () => {
       active = false;
@@ -131,6 +167,13 @@ function App() {
   const riskLevel = String(prediction?.riskLevel || prediction?.predictionResult || "");
   const isHighRisk = riskLevel.toLowerCase().includes("high");
   const isLowRisk = riskLevel.toLowerCase().includes("low");
+  const riskDistribution = history.reduce((counts, record) => {
+    const risk = String(record.riskLevel || "").toLowerCase();
+    if (risk.includes("high")) counts.High += 1;
+    else if (risk.includes("low")) counts.Low += 1;
+    else counts.Unclassified += 1;
+    return counts;
+  }, { High: 0, Low: 0, Unclassified: 0 });
   const explainability = prediction?.explainability
     ?? prediction?.explanation
     ?? prediction?.featureContributions
@@ -231,10 +274,20 @@ function App() {
         return <PatientsPage patients={patients} loading={patientLoading} error={patientError} actionError={actionError} actionLoading={actionLoading} onRetry={loadPatients} onAddPatient={addPatient} onUpdatePatient={updatePatient} onDeletePatient={deletePatient} />;
       case "history":
         return <HistoryPage history={history} loading={historyLoading} error={historyError} actionError={actionError} actionLoading={actionLoading} onRetry={loadHistory} onClearHistory={clearHistory} onExport={exportCsv} />;
+      case "explainability":
+        return <ExplainabilityPage patients={patients} />;
+      case "federated":
+        return <FederatedLearningPage />;
       case "nodes":
         return <HospitalNodesPage />;
       case "blockchain":
         return <BlockchainPage history={history} onExport={exportCsv} />;
+      case "health":
+        return <ServiceHealthPage onAuthenticated={() => {
+          loadPatients();
+          loadHistory();
+          refreshServiceIndicators();
+        }} />;
       case "analytics":
         return <AnalyticsPage patients={patients} history={history} loading={patientLoading || historyLoading} patientError={patientError} historyError={historyError} onRetry={() => { loadPatients(); loadHistory(); }} />;
       case "about":
@@ -325,9 +378,9 @@ function App() {
 
           <div className="header-right">
 
-            <div className="system-online" title={`Configured API: ${api.baseUrl}`}>
+            <div className={`system-online ${backendHealth?.status === "UP" ? "system-online-up" : "system-online-down"}`} title={`Configured API: ${api.baseUrl}`}>
               <span></span>
-              API configured
+              {backendHealth?.status === "UP" ? "Backend connected" : backendHealthError ? "Backend unavailable" : "Checking backend"}
             </div>
 
             <div className="header-menu-wrap">
@@ -363,13 +416,14 @@ function App() {
                 }}
               >
                 <span className="avatar">✚</span>
-                <span className="admin-user-copy"><strong>Demo Workspace</strong><small>Authentication pending</small></span>
+                <span className="admin-user-copy"><strong>Demo Workspace</strong><small>{api.hasCredentials() ? "Authenticated in this tab" : "Backend access status"}</small></span>
                 <span aria-hidden="true">⌄</span>
               </button>
               {showProfileMenu && (
                 <div className="header-popover profile-popover">
-                  <strong>Authentication pending</strong>
-                  <p>This academic demo has no backend authentication.</p>
+                  <strong>{api.hasCredentials() ? "Authenticated in this tab" : "Backend authentication"}</strong>
+                  <p>Production backend access uses HTTP Basic credentials held only in this browser tab.</p>
+                  <button type="button" className="text-action" onClick={() => { setActiveSection("health"); setShowProfileMenu(false); }}>Service health & settings</button>
                   <button type="button" className="text-action" onClick={() => { setActiveSection("about"); setShowProfileMenu(false); }}>About this project</button>
                 </div>
               )}
@@ -502,13 +556,21 @@ function App() {
 
             <div className="stat-card">
               <div className="stat-icon teal">⬡</div>
-
-              <div>
-                <h3>4</h3>
-                <p>Simulated nodes</p>
-              </div>
+              <div><h3>3</h3><p>Simulated clients</p></div>
             </div>
 
+          </section>
+
+          <section className="dashboard-service-strip" aria-label="Live backend service status">
+            <article><span>Spring Boot</span><strong className={backendHealth?.status === "UP" ? "service-up" : backendHealthError ? "service-down" : ""}>{backendHealth?.status || (backendHealthError ? "Disconnected" : "Checking…")}</strong><small>GET /actuator/health</small></article>
+            <article><span>ML service</span><strong className="service-unavailable">Not exposed by backend</strong><small>Proxy health endpoint is not implemented</small></article>
+            <article><span>Integrity audit</span><strong className={auditStatus?.valid ? "service-up" : auditStatus?.valid === false ? "service-down" : ""}>{auditStatus ? (auditStatus.valid ? "Verified" : "Failed") : auditStatusError ? "Unavailable" : "Checking…"}</strong><small>{auditStatus ? `${auditStatus.checkedRecords} records checked` : auditStatusError || "Backend verification pending"}</small></article>
+          </section>
+          {(backendHealthError || auditStatusError) && <div className="page-error dashboard-api-error" role="alert"><div><strong>Some live status checks are unavailable.</strong>{backendHealthError && <p>Backend: {backendHealthError}</p>}{auditStatusError && <p>Audit: {auditStatusError}</p>}</div><button className="secondary-action" type="button" onClick={refreshServiceIndicators}>Retry checks</button></div>}
+
+          <section className="analytics-panel dashboard-risk-panel" aria-labelledby="dashboard-risk-title">
+            <div className="section-title"><div><span className="page-eyebrow">BACKEND RECORDS</span><h2 id="dashboard-risk-title">Prediction risk distribution</h2><p>Risk categories from saved prediction responses only</p></div><button className="text-action" type="button" onClick={() => setActiveSection("analytics")}>Open analytics</button></div>
+            {historyLoading ? <div className="page-loading" role="status">Loading prediction distribution…</div> : historyError ? <div className="page-error" role="alert"><p>{historyError}</p></div> : history.length === 0 ? <div className="page-empty-state"><h3>No backend predictions to summarize</h3><p>Saved predictions will appear here after the service returns them.</p></div> : <div className="bar-chart">{Object.entries(riskDistribution).map(([label, count]) => <div className="bar-row" key={label}><span>{label}</span><div className="bar-track"><div className={label === "High" ? "bar-fill bar-fill-danger" : "bar-fill"} style={{ width: `${(count / history.length) * 100}%` }} /></div><strong>{count}</strong></div>)}</div>}
           </section>
 
           {(patientError || historyError) && (
@@ -874,7 +936,7 @@ function App() {
 
           </section>}
 
-          {!['dashboard', 'prediction'].includes(activeSection) && renderActivePage()}
+          {!["dashboard", "prediction"].includes(activeSection) && renderActivePage()}
 
         </div>
 

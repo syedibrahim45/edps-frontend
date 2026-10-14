@@ -1,13 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, probabilityPercent } from "../api";
 
-const hospitalNodes = [
-  { id: "HSP-001", name: "Central General Hospital", location: "Bengaluru, Karnataka", specialty: "General Medicine", status: "Online", lastSync: "Just now" },
-  { id: "HSP-002", name: "Northside Medical Centre", location: "Mysuru, Karnataka", specialty: "Cardiology", status: "Online", lastSync: "2 min ago" },
-  { id: "HSP-003", name: "City Teaching Hospital", location: "Hubballi, Karnataka", specialty: "Endocrinology", status: "Online", lastSync: "5 min ago" },
-  { id: "HSP-004", name: "Community Health Network", location: "Mangaluru, Karnataka", specialty: "Primary Care", status: "Maintenance", lastSync: "18 min ago" },
-];
-
 function PageHeading({ eyebrow, title, description, action }) {
   return (
     <div className="page-heading">
@@ -137,11 +130,11 @@ export function PatientsPage({ patients, loading, error, actionError, actionLoad
             <label>Gender<select required value={form.gender} onChange={(event) => setForm({ ...form, gender: event.target.value })}><option value="">Select</option><option>Female</option><option>Male</option></select></label>
             <label>Phone<input type="tel" maxLength="30" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="Phone number" /></label>
             <label>Email<input type="email" maxLength="254" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="Email address" /></label>
-            <label>Blood pressure (mmHg)<input required type="number" min="1" max="400" value={form.bloodPressure} onChange={(event) => setForm({ ...form, bloodPressure: event.target.value })} placeholder="e.g. 120" /></label>
-            <label>Glucose (mg/dL)<input required type="number" min="1" max="1000" value={form.glucose} onChange={(event) => setForm({ ...form, glucose: event.target.value })} placeholder="e.g. 100" /></label>
-            <label>BMI<input required type="number" min="0.1" max="100" step="0.1" value={form.bmi} onChange={(event) => setForm({ ...form, bmi: event.target.value })} placeholder="e.g. 24.5" /></label>
-            <label>Heart rate (bpm)<input required type="number" min="1" max="300" value={form.heartRate} onChange={(event) => setForm({ ...form, heartRate: event.target.value })} placeholder="e.g. 72" /></label>
-            <label>Cholesterol (mg/dL)<input required type="number" min="1" max="1000" value={form.cholesterol} onChange={(event) => setForm({ ...form, cholesterol: event.target.value })} placeholder="e.g. 180" /></label>
+            <label>Blood pressure (mmHg)<input required type="number" min="40" max="300" value={form.bloodPressure} onChange={(event) => setForm({ ...form, bloodPressure: event.target.value })} placeholder="e.g. 120" /></label>
+            <label>Glucose (mg/dL)<input required type="number" min="20" max="1000" value={form.glucose} onChange={(event) => setForm({ ...form, glucose: event.target.value })} placeholder="e.g. 100" /></label>
+            <label>BMI<input required type="number" min="5" max="100" step="0.1" value={form.bmi} onChange={(event) => setForm({ ...form, bmi: event.target.value })} placeholder="e.g. 24.5" /></label>
+            <label>Heart rate (bpm)<input required type="number" min="20" max="250" value={form.heartRate} onChange={(event) => setForm({ ...form, heartRate: event.target.value })} placeholder="e.g. 72" /></label>
+            <label>Cholesterol (mg/dL)<input required type="number" min="50" max="1000" value={form.cholesterol} onChange={(event) => setForm({ ...form, cholesterol: event.target.value })} placeholder="e.g. 180" /></label>
           </div>
           <button className="primary-action" type="submit" disabled={actionLoading}>{actionLoading ? "Saving…" : editingPatient ? "Update patient" : "Save patient"}</button>
         </form>
@@ -168,6 +161,7 @@ export function PatientsPage({ patients, loading, error, actionError, actionLoad
 
 export function HistoryPage({ history, loading, error, actionError, actionLoading, onRetry, onClearHistory, onExport }) {
   const [search, setSearch] = useState("");
+  const [selectedRecord, setSelectedRecord] = useState(null);
   const filteredHistory = history.filter((record) =>
     `${record.patient?.name || ""} ${record.diseaseType || ""} ${record.riskLevel || ""}`.toLowerCase().includes(search.toLowerCase()),
   );
@@ -179,16 +173,176 @@ export function HistoryPage({ history, loading, error, actionError, actionLoadin
       {error && <div className="page-error" role="alert"><div><strong>Prediction history could not be loaded.</strong><p>{error}</p></div><button className="secondary-action" type="button" onClick={onRetry}>Retry</button></div>}
       <div className="page-toolbar"><label className="search-field"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search patient, disease, or risk" /></label><span>{filteredHistory.length} predictions</span></div>
       {loading ? <div className="page-loading" role="status">Loading backend prediction history…</div> : error ? null : filteredHistory.length === 0 ? <EmptyState icon="◷" title={search ? "No matching predictions" : "No predictions recorded"} description={search ? "Try another search term." : "Completed predictions will appear here after the prediction service responds."} /> : (
-        <div className="data-table-wrap"><table className="data-table"><thead><tr><th>Date</th><th>Patient</th><th>Disease</th><th>Result</th><th>Risk</th><th>Probability</th></tr></thead><tbody>
-          {filteredHistory.map((record, index) => { const probability = probabilityPercent(record.probability); const probabilityText = probability == null ? "—" : `${probability}%`; const risk = String(record.riskLevel || "Unknown"); const riskClass = risk.toLowerCase().includes("high") ? "status-danger" : risk.toLowerCase().includes("low") ? "status-success" : "status-warning"; return <tr key={record.id ?? record.predictionId ?? index}><td>{record.createdAt || record.timestamp || record.predictedAt ? new Date(record.createdAt || record.timestamp || record.predictedAt).toLocaleString() : "—"}</td><td>{record.patient?.name || record.patientName || "—"}</td><td>{record.diseaseType || "—"}</td><td>{record.predictionResult || "—"}</td><td><span className={`status-pill ${riskClass}`}>{risk}</span></td><td>{probabilityText}</td></tr>; })}
+        <div className="data-table-wrap"><table className="data-table"><thead><tr><th>Date</th><th>Patient</th><th>Disease</th><th>Result</th><th>Risk</th><th>Probability</th><th>Details</th></tr></thead><tbody>
+          {filteredHistory.map((record, index) => { const probability = probabilityPercent(record.probability); const probabilityText = probability == null ? "—" : `${probability}%`; const risk = String(record.riskLevel || "Unknown"); const riskClass = risk.toLowerCase().includes("high") ? "status-danger" : risk.toLowerCase().includes("low") ? "status-success" : "status-warning"; return <tr key={record.id ?? record.predictionId ?? index}><td>{record.createdAt || record.timestamp || record.predictedAt ? new Date(record.createdAt || record.timestamp || record.predictedAt).toLocaleString() : "—"}</td><td>{record.patient?.name || record.patientName || "—"}</td><td>{record.diseaseType || "—"}</td><td>{record.predictionResult || "—"}</td><td><span className={`status-pill ${riskClass}`}>{risk}</span></td><td>{probabilityText}</td><td><button className="text-action" type="button" onClick={() => setSelectedRecord(record)}>View</button></td></tr>; })}
         </tbody></table></div>
       )}
+      {selectedRecord && <section className="history-detail-card" aria-label="Selected prediction details"><div className="section-title"><div><h2>Prediction details</h2><p>Values returned by the backend and saved in prediction history.</p></div><button className="text-action" type="button" onClick={() => setSelectedRecord(null)}>Close</button></div><dl className="settings-list"><div><dt>Prediction ID</dt><dd>{selectedRecord.id ?? selectedRecord.predictionId ?? "Not returned"}</dd></div><div><dt>Patient ID</dt><dd>{selectedRecord.patient?.id ?? selectedRecord.patientId ?? "Not returned"}</dd></div><div><dt>Patient</dt><dd>{selectedRecord.patient?.name || selectedRecord.patientName || "Not returned"}</dd></div><div><dt>Disease / result</dt><dd>{selectedRecord.diseaseType || "Not returned"} / {selectedRecord.predictionResult || "Not returned"}</dd></div><div><dt>Risk probability</dt><dd>{probabilityPercent(selectedRecord.probability) == null ? "Not returned" : `${probabilityPercent(selectedRecord.probability)}%`}</dd></div><div><dt>Recorded</dt><dd>{selectedRecord.createdAt || selectedRecord.timestamp || selectedRecord.predictedAt || "Not returned"}</dd></div></dl></section>}
+    </section>
+  );
+}
+
+function simulationFeatureValue(patient) {
+  const gender = String(patient.gender || "").trim().toLowerCase();
+  const genderCode = ["male", "m", "0"].includes(gender)
+    ? 0
+    : ["female", "f", "1"].includes(gender)
+      ? 1
+      : null;
+  const values = {
+    age: Number(patient.age),
+    gender: genderCode,
+    blood_pressure: Number(patient.bloodPressure),
+    glucose: Number(patient.glucose),
+    bmi: Number(patient.bmi),
+    heart_rate: Number(patient.heartRate),
+    cholesterol: Number(patient.cholesterol),
+  };
+  if (Object.values(values).some((value) => value === null || !Number.isFinite(value))) return null;
+  return values;
+}
+
+export function ExplainabilityPage({ patients }) {
+  const [globalResults, setGlobalResults] = useState(null);
+  const [globalLoading, setGlobalLoading] = useState(true);
+  const [globalError, setGlobalError] = useState("");
+  const [selectedPatientId, setSelectedPatientId] = useState("");
+  const [individualResults, setIndividualResults] = useState(null);
+  const [individualLoading, setIndividualLoading] = useState(false);
+  const [individualError, setIndividualError] = useState("");
+
+  const loadGlobalResults = async () => {
+    setGlobalLoading(true);
+    setGlobalError("");
+    try {
+      setGlobalResults(await api.getGlobalExplainability());
+    } catch (error) {
+      setGlobalResults(null);
+      setGlobalError(error.message || "Global explainability could not be loaded.");
+    } finally {
+      setGlobalLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    api.getGlobalExplainability()
+      .then((result) => {
+        if (active) {
+          setGlobalResults(result);
+          setGlobalError("");
+        }
+      })
+      .catch((error) => {
+        if (active) {
+          setGlobalResults(null);
+          setGlobalError(error.message || "Global explainability could not be loaded.");
+        }
+      })
+      .finally(() => { if (active) setGlobalLoading(false); });
+    return () => { active = false; };
+  }, []);
+
+  const explainPatient = async (event) => {
+    event.preventDefault();
+    const patient = patients.find((item) => String(item.id) === selectedPatientId);
+    const features = patient && simulationFeatureValue(patient);
+    setIndividualError("");
+    setIndividualResults(null);
+    if (!features) {
+      setIndividualError("Select a patient with all seven valid model features before requesting an explanation.");
+      return;
+    }
+    setIndividualLoading(true);
+    try {
+      setIndividualResults(await api.getIndividualExplainability(features));
+    } catch (error) {
+      setIndividualError(error.message || "Individual explanation could not be loaded.");
+    } finally {
+      setIndividualLoading(false);
+    }
+  };
+
+  const maxImportance = Math.max(
+    0.000001,
+    ...(globalResults?.feature_importance || []).map((item) => Math.abs(item.mean_importance)),
+  );
+  const maxEffect = Math.max(
+    0.000001,
+    ...(individualResults?.feature_effects || []).map((item) => Math.abs(item.probability_delta)),
+  );
+
+  return (
+    <section className="workspace-page">
+      <PageHeading eyebrow="MODEL INTERPRETABILITY" title="Explainable AI" description="Explore model-level feature importance and request a separate sensitivity explanation for a selected backend patient." />
+      <section className="analytics-panel" aria-labelledby="global-explainability-heading">
+        <div className="section-title">
+          <div><h2 id="global-explainability-heading">Global feature importance</h2><p>Across the synthetic model evaluation dataset; not specific to any patient.</p></div>
+          <button className="secondary-action" type="button" onClick={loadGlobalResults} disabled={globalLoading}>{globalLoading ? "Loading…" : "Refresh"}</button>
+        </div>
+        {globalLoading ? (
+          <div className="page-loading" role="status">Loading global feature importance from the backend…</div>
+        ) : globalError ? (
+          <div className="page-error" role="alert"><div><strong>Global explanation unavailable.</strong><p>{globalError}</p></div><button className="secondary-action" type="button" onClick={loadGlobalResults}>Retry</button></div>
+        ) : (
+          <>
+            <div className="overview-cards">
+              <article><span>Scope</span><strong>Global</strong></article>
+              <article><span>Evaluation samples</span><strong>{globalResults.sample_count}</strong></article>
+              <article><span>Method</span><strong>{globalResults.method.replaceAll("_", " ")}</strong></article>
+            </div>
+            <div className="global-importance-chart" aria-label="Global feature importance chart">
+              {globalResults.feature_importance.map((item) => {
+                const width = Math.max(0, Math.min(100, Math.abs(item.mean_importance) / maxImportance * 100));
+                return <div className="global-importance-row" key={item.feature}><span>{item.feature.replaceAll("_", " ")}</span><div className="bar-track" role="img" aria-label={`${item.feature} relative importance ${item.mean_importance}`}><div className="bar-fill" style={{ width: `${width}%` }} /></div><strong>{item.mean_importance.toFixed(4)} ± {item.std_importance.toFixed(4)}</strong></div>;
+              })}
+            </div>
+            <p className="disclaimer-note">{globalResults.note || globalResults.description} This is not a causal or clinical explanation.</p>
+          </>
+        )}
+      </section>
+      <section className="analytics-panel" aria-labelledby="individual-explainability-heading">
+        <div className="section-title"><div><h2 id="individual-explainability-heading">Individual sensitivity explanation</h2><p>Compares a patient's model output with one-feature-at-a-time synthetic reference substitutions.</p></div></div>
+        <form className="explanation-form" onSubmit={explainPatient}>
+          <label htmlFor="explanation-patient">Backend patient record</label>
+          <select id="explanation-patient" value={selectedPatientId} onChange={(event) => setSelectedPatientId(event.target.value)} required>
+            <option value="">Select a patient</option>
+            {patients.filter((patient) => patient.id != null).map((patient) => <option key={patient.id} value={patient.id}>{patient.name || "Unnamed patient"} · ID {patient.id}</option>)}
+          </select>
+          <button className="primary-action" type="submit" disabled={!selectedPatientId || individualLoading}>{individualLoading ? "Explaining…" : "Request individual explanation"}</button>
+        </form>
+        {individualError && <div className="page-error" role="alert"><div><strong>Individual explanation unavailable.</strong><p>{individualError}</p></div></div>}
+        {individualResults && (
+          <>
+            <div className="inline-notice">{individualResults.note} Reference population: {individualResults.reference_population}.</div>
+            <div className="global-importance-chart" aria-label="Individual feature sensitivity chart">
+              {individualResults.feature_effects.map((effect) => {
+                const width = Math.max(0, Math.min(100, Math.abs(effect.probability_delta) / maxEffect * 100));
+                return <div className="global-importance-row" key={effect.feature}><span>{effect.feature.replaceAll("_", " ")}</span><div className="bar-track" role="img" aria-label={`${effect.feature} probability delta ${effect.probability_delta}`}><div className={effect.probability_delta < 0 ? "bar-fill bar-fill-danger" : "bar-fill"} style={{ width: `${width}%` }} /></div><strong>{(effect.probability_delta * 100).toFixed(2)} pp · input {effect.input_value} / ref {effect.reference_value}</strong></div>;
+              })}
+            </div>
+            <p className="disclaimer-note">Sensitivity values are non-additive and non-causal; they are not SHAP values or medical explanations.</p>
+          </>
+        )}
+      </section>
+      <p className="disclaimer-note">Both endpoints are expected through the Spring Boot proxy at <code>/api/ml/explainability/…</code>. The current backend repository must expose these proxy routes before results can be displayed. No ML service is called directly by this page.</p>
     </section>
   );
 }
 
 export function HospitalNodesPage() {
-  const [lastChecked, setLastChecked] = useState(null);
+  return (
+    <section className="workspace-page">
+      <PageHeading eyebrow="ACADEMIC DEMONSTRATION" title="Simulated client nodes" description="These generic client slots illustrate data partitions in the simulation only; none is a hospital or connected device." />
+      <div className="simulated-client-grid">
+        {[1, 2, 3].map((client) => <article className="simulated-client" key={client}><span className="status-pill status-warning">Simulated</span><strong>Client {client}</strong><small>Not connected · synthetic data only</small></article>)}
+      </div>
+      <p className="disclaimer-note">View the Federated Learning page for actual experiment metrics when the backend proxy exposes them.</p>
+    </section>
+  );
+}
+
+export function FederatedLearningPage() {
   const [federatedResults, setFederatedResults] = useState(null);
   const [federatedLoading, setFederatedLoading] = useState(true);
   const [federatedError, setFederatedError] = useState("");
@@ -207,88 +361,61 @@ export function HospitalNodesPage() {
   }, []);
 
   useEffect(() => {
-    let mounted = true;
-
-    const syncResults = async () => {
-      if (!mounted) return;
-      await loadFederatedResults();
-    };
-
-    syncResults();
-
-    return () => {
-      mounted = false;
-    };
+    let active = true;
+    api.getFederatedResults()
+      .then((result) => {
+        if (active) {
+          setFederatedResults(result);
+          setFederatedError("");
+        }
+      })
+      .catch((error) => {
+        if (active) {
+          setFederatedResults(null);
+          setFederatedError(error.message || "Federated simulation results could not be loaded.");
+        }
+      })
+      .finally(() => { if (active) setFederatedLoading(false); });
+    return () => { active = false; };
   }, [loadFederatedResults]);
 
-  const roundMetrics = federatedResults?.round_metrics
-    || federatedResults?.round_history
-    || federatedResults?.round_results
-    || [];
-  const progress = federatedResults
-    ? Math.round(Math.min(1, Number(federatedResults.rounds_completed ?? federatedResults.rounds) / federatedResults.rounds) * 100)
-    : 0;
+  const progress = federatedResults ? 100 : 0;
 
   return (
     <section className="workspace-page">
-      <PageHeading eyebrow="FEDERATED NETWORK" title="Hospital nodes" description="Illustrative node cards for the academic federated-learning concept; no live hospital clients are connected." action={<button className="secondary-action" type="button" onClick={() => setLastChecked(new Date())}>↻ Refresh sample</button>} />
-      {lastChecked && <div className="inline-notice" role="status">Sample node list refreshed locally at {lastChecked.toLocaleTimeString()}. This does not check live connectivity.</div>}
-      <div className="overview-cards"><article><span>Simulated nodes</span><strong>{hospitalNodes.length}</strong></article><article><span>Live federated clients</span><strong>Not connected</strong></article><article><span>Network status</span><strong>Academic demo</strong></article></div>
-      <div className="node-grid">{hospitalNodes.map((node) => <article className="node-card" key={node.id}><div className="node-card-top"><span className="node-icon">▦</span><span className="status-pill status-warning">Simulated</span></div><span className="page-eyebrow">{node.id}</span><h2>{node.name}</h2><p>{node.location}</p><div className="node-meta"><span>Specialty (sample)</span><strong>{node.specialty}</strong></div><div className="node-meta"><span>Last sync (sample)</span><strong>{node.lastSync}</strong></div></article>)}</div>
+      <PageHeading eyebrow="FEDERATED NETWORK" title="Federated learning" description="Experimental federated learning simulation using synthetic data. These clients are not live hospitals." action={<button className="secondary-action" type="button" onClick={loadFederatedResults} disabled={federatedLoading}>{federatedLoading ? "Loading…" : "Refresh results"}</button>} />
+      <div className="simulated-client-grid" aria-label="Simulated federated clients">
+        {[1, 2, 3].map((client) => <article className="simulated-client" key={client}><span className="status-pill status-warning">Simulated</span><strong>Client {client}</strong><small>Synthetic data partition{federatedResults?.client_rows?.[client - 1] == null ? "" : ` · ${federatedResults.client_rows[client - 1]} rows`}</small></article>)}
+      </div>
+      <div className="inline-notice">Experimental federated learning simulation using synthetic data. This is not a live hospital network and provides no clinical or privacy guarantee.</div>
       <section className="federated-results" aria-labelledby="federated-results-title">
-        <div className="section-title">
-          <div>
-            <span className="page-eyebrow">EXPERIMENTAL SIMULATION</span>
-            <h2 id="federated-results-title">FedAvg results</h2>
-            <p>Python simulation output on synthetic data. These are not live hospital training metrics.</p>
-          </div>
-          <button className="secondary-action" type="button" onClick={loadFederatedResults} disabled={federatedLoading}>
-            {federatedLoading ? "Loading…" : "Refresh results"}
-          </button>
-        </div>
+        <div className="section-title"><div><span className="page-eyebrow">EXPERIMENTAL SIMULATION</span><h2 id="federated-results-title">FedAvg results</h2><p>Metrics appear only after a successful Spring Boot proxy response.</p></div></div>
         {federatedError ? (
-          <div className="page-error" role="alert">
-            <div><strong>Simulation results are unavailable.</strong><p>{federatedError}</p></div>
-            <button className="secondary-action" type="button" onClick={loadFederatedResults} disabled={federatedLoading}>Retry</button>
-          </div>
+          <div className="page-error" role="alert"><div><strong>Simulation results are unavailable.</strong><p>{federatedError}</p></div><button className="secondary-action" type="button" onClick={loadFederatedResults} disabled={federatedLoading}>Retry</button></div>
         ) : federatedLoading ? (
-          <div className="page-loading" role="status">Loading versioned Python simulation results…</div>
+          <div className="page-loading" role="status">Loading simulation results from the backend…</div>
         ) : federatedResults ? (
           <>
             <div className="federated-metrics">
               <article><span>Simulated clients</span><strong>{federatedResults.client_count}</strong></article>
               <article><span>Communication rounds</span><strong>{federatedResults.rounds}</strong></article>
-              <article><span>Training status</span><strong>{federatedResults.status || "Completed snapshot"}</strong></article>
-              <article><span>Evaluation accuracy</span><strong>{(federatedResults.accuracy * 100).toFixed(1)}%</strong></article>
-              <article><span>Precision (class 1)</span><strong>{Number.isFinite(federatedResults.precision_class_1) ? `${(federatedResults.precision_class_1 * 100).toFixed(1)}%` : "Not reported"}</strong></article>
-              <article><span>Recall (class 1)</span><strong>{Number.isFinite(federatedResults.recall_class_1) ? `${(federatedResults.recall_class_1 * 100).toFixed(1)}%` : "Not reported"}</strong></article>
-              <article><span>F1 (class 1)</span><strong>{Number.isFinite(federatedResults.f1_class_1) ? `${(federatedResults.f1_class_1 * 100).toFixed(1)}%` : "Not reported"}</strong></article>
+              <article><span>Training status</span><strong>{federatedResults.status}</strong></article>
+              <article><span>Evaluation accuracy</span><strong>{(federatedResults.final_evaluation_metrics.accuracy * 100).toFixed(1)}%</strong></article>
+              <article><span>Precision (class 1)</span><strong>{(federatedResults.final_evaluation_metrics.precision_class_1 * 100).toFixed(1)}%</strong></article>
+              <article><span>Recall (class 1)</span><strong>{(federatedResults.final_evaluation_metrics.recall_class_1 * 100).toFixed(1)}%</strong></article>
+              <article><span>F1 (class 1)</span><strong>{(federatedResults.final_evaluation_metrics.f1_class_1 * 100).toFixed(1)}%</strong></article>
             </div>
-            <div className="federated-progress">
-              <div><span>Round completion in this results snapshot</span><strong>{federatedResults.rounds_completed ?? federatedResults.rounds} / {federatedResults.rounds}</strong></div>
-              <div className="probability-track" role="progressbar" aria-label="Federated simulation round completion" aria-valuemin="0" aria-valuemax="100" aria-valuenow={progress}>
-                <span className="probability-fill" style={{ width: `${progress}%` }} />
-              </div>
-              <small>A saved simulation result represents a completed run; this is not a live training-progress stream.</small>
-            </div>
+            <div className="federated-progress"><div><span>Completed communication rounds</span><strong>{federatedResults.rounds} / {federatedResults.rounds}</strong></div><div className="probability-track" role="progressbar" aria-label="Federated simulation round completion" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><span className="probability-fill" style={{ width: `${progress}%` }} /></div><small>This is a completed simulation result, not a live training-progress stream.</small></div>
             <div className="analytics-panel">
-              <div className="section-title"><div><h3>Per-round performance</h3><p>Only metrics emitted by the configured result file are plotted.</p></div></div>
-              {roundMetrics.length ? (
-                <div className="bar-chart" aria-label="Per-round federated performance">
-                  {roundMetrics.map((round, index) => {
-                    const accuracy = Number(round.accuracy);
-                    const value = Number.isFinite(accuracy) ? Math.max(0, Math.min(100, accuracy <= 1 ? accuracy * 100 : accuracy)) : 0;
-                    return <div className="bar-row" key={round.round ?? index}><span>Round {round.round ?? index + 1}</span><div className="bar-track"><div className="bar-fill" style={{ width: `${value}%` }} /></div><strong>{Number.isFinite(accuracy) ? `${value.toFixed(1)}%` : "—"}</strong></div>;
-                  })}
-                </div>
-              ) : (
-                <EmptyState icon="▥" title="Per-round metrics not included" description="The current Python simulator writes final evaluation metrics only. No per-round scores are fabricated; the result producer must add round_metrics to populate this chart." />
-              )}
+              <div className="section-title"><div><h3>Per-round performance</h3><p>Metrics returned by the simulation for each communication round.</p></div></div>
+              {federatedResults.per_round_metrics.length ? <div className="bar-chart" aria-label="Per-round federated performance">{federatedResults.per_round_metrics.map((round) => <div className="bar-row" key={round.round}><span>Round {round.round}</span><div className="bar-track"><div className="bar-fill" style={{ width: `${Math.max(0, Math.min(100, round.accuracy * 100))}%` }} /></div><strong>{(round.accuracy * 100).toFixed(1)}%</strong></div>)}</div> : <EmptyState icon="▥" title="Per-round metrics not included" description="The backend returned no per-round values; none are fabricated." />}
+              <p>Model: {federatedResults.model}; local epochs: {federatedResults.local_epochs}; aggregation: {federatedResults.aggregation}.</p>
             </div>
-            <p className="disclaimer-note">{federatedResults.interpretation || "Experimental simulation on synthetic data only. Results are descriptive, not clinical evidence or a privacy guarantee."}</p>
+            <p className="disclaimer-note">{federatedResults.interpretation}</p>
           </>
         ) : null}
       </section>
+      <p className="disclaimer-note">Expected backend route: <code>GET /api/ml/federated/results</code>. The current backend repository does not expose an ML proxy, so no direct FastAPI fallback is used.</p>
     </section>
   );
 }
@@ -297,6 +424,16 @@ export function BlockchainPage({ history, onExport }) {
   const [verification, setVerification] = useState(null);
   const [verificationError, setVerificationError] = useState("");
   const [verifying, setVerifying] = useState(false);
+  const [auditRecords, setAuditRecords] = useState([]);
+  const [auditRecordsError, setAuditRecordsError] = useState("");
+  const [auditRecordsLoading, setAuditRecordsLoading] = useState(true);
+
+  useEffect(() => {
+    api.getAuditRecords()
+      .then(setAuditRecords)
+      .catch((error) => setAuditRecordsError(error.message || "Audit history could not be loaded."))
+      .finally(() => setAuditRecordsLoading(false));
+  }, []);
 
   const verifyIntegrity = async () => {
     setVerifying(true);
@@ -356,7 +493,107 @@ export function BlockchainPage({ history, onExport }) {
           </div>
         </>
       )}
+      <section className="analytics-panel" aria-labelledby="audit-history-heading">
+        <div className="section-title"><div><h2 id="audit-history-heading">Audit history</h2><p>Backend audit records contain event and record-reference metadata, not patient details.</p></div></div>
+        {auditRecordsLoading ? <div className="page-loading" role="status">Loading backend audit history…</div> : auditRecordsError ? <div className="page-error" role="alert"><div><strong>Audit history is unavailable.</strong><p>{auditRecordsError}</p></div><button className="secondary-action" type="button" onClick={() => { setAuditRecordsLoading(true); setAuditRecordsError(""); api.getAuditRecords().then(setAuditRecords).catch((error) => setAuditRecordsError(error.message || "Audit history could not be loaded.")).finally(() => setAuditRecordsLoading(false)); }}>Retry</button></div> : auditRecords.length === 0 ? <EmptyState icon="⬡" title="No audit records returned" description="The backend has not returned audit history records." /> : (
+          <div className="data-table-wrap"><table className="data-table"><thead><tr><th>Timestamp</th><th>Reference</th><th>Event metadata</th><th>Chain hash</th></tr></thead><tbody>{auditRecords.map((record) => <tr key={record.id ?? record.reference}><td>{record.timestamp ? new Date(record.timestamp).toLocaleString() : "—"}</td><td>{record.reference || "—"}</td><td>{record.payload || "—"}</td><td><code>{record.currentHash ? `${record.currentHash.slice(0, 12)}…` : "—"}</code></td></tr>)}</tbody></table></div>
+        )}
+      </section>
       <p className="disclaimer-note">Verification uses GET /integrity/audit/verify. The backend currently returns an integrity summary rather than a list of individually verified prediction records.</p>
+    </section>
+  );
+}
+
+export function ServiceHealthPage({ onAuthenticated }) {
+  const [health, setHealth] = useState(null);
+  const [healthLoading, setHealthLoading] = useState(true);
+  const [healthError, setHealthError] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authMessage, setAuthMessage] = useState("");
+  const [authError, setAuthError] = useState("");
+  const [authenticated, setAuthenticated] = useState(api.hasCredentials());
+
+  const refreshHealth = async () => {
+    setHealthLoading(true);
+    setHealthError("");
+    try {
+      setHealth(await api.getBackendHealth());
+    } catch (error) {
+      setHealth(null);
+      setHealthError(error.message || "Backend health could not be checked.");
+    } finally {
+      setHealthLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    api.getBackendHealth()
+      .then(setHealth)
+      .catch((error) => setHealthError(error.message || "Backend health could not be checked."))
+      .finally(() => setHealthLoading(false));
+  }, []);
+
+  const submitCredentials = async (event) => {
+    event.preventDefault();
+    setAuthLoading(true);
+    setAuthError("");
+    setAuthMessage("");
+    try {
+      await api.authenticate(username, password);
+      setAuthenticated(true);
+      setPassword("");
+      setAuthMessage("Backend credentials accepted for this tab. The password is not persisted.");
+      await onAuthenticated?.();
+    } catch (error) {
+      setAuthenticated(false);
+      setAuthError(error.message || "Backend authentication failed.");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const clearCredentials = () => {
+    api.clearCredentials();
+    setAuthenticated(false);
+    setPassword("");
+    setAuthMessage("Credentials cleared from this tab.");
+    setAuthError("");
+  };
+
+  const databaseHealth = health?.components?.db?.status || health?.components?.database?.status;
+
+  return (
+    <section className="workspace-page">
+      <PageHeading eyebrow="SYSTEM CONFIGURATION" title="Service health & settings" description="Check the backend health endpoint and manage the existing HTTP Basic authentication flow for this browser tab." action={<button className="secondary-action" type="button" onClick={refreshHealth} disabled={healthLoading}>{healthLoading ? "Checking…" : "Refresh status"}</button>} />
+      {healthError && <div className="page-error" role="alert"><div><strong>Backend health is unavailable.</strong><p>{healthError}</p></div><button className="secondary-action" type="button" onClick={refreshHealth}>Retry</button></div>}
+      <div className="service-status-grid">
+        <article><span>Frontend</span><strong className="service-state service-up">Running</strong><small>Vite application loaded</small></article>
+        <article><span>Spring Boot API</span><strong className={`service-state ${health?.status === "UP" ? "service-up" : "service-down"}`}>{healthLoading ? "Checking…" : health?.status || "Disconnected"}</strong><small>{api.baseUrl}/actuator/health</small></article>
+        <article><span>MySQL database</span><strong className="service-state">{databaseHealth || "Not reported"}</strong><small>{databaseHealth ? "Reported by Spring Boot health details" : "Backend health response does not expose component details"}</small></article>
+        <article><span>FastAPI ML</span><strong className="service-state service-unavailable">Not exposed</strong><small>The backend has no ML health proxy route; this UI does not call FastAPI directly.</small></article>
+      </div>
+      <section className="analytics-panel auth-settings-panel" aria-labelledby="auth-settings-heading">
+        <div className="section-title"><div><h2 id="auth-settings-heading">Backend authentication</h2><p>Spring Boot production mode uses one configured HTTP Basic administrator and requires a CSRF token for write operations.</p></div><span className={`status-pill ${authenticated ? "status-success" : "status-warning"}`}>{authenticated ? "Credentials set in this tab" : "No credentials in memory"}</span></div>
+        {authMessage && <div className="inline-notice" role="status">{authMessage}</div>}
+        {authError && <div className="page-error" role="alert">{authError}</div>}
+        <form className="auth-form" onSubmit={submitCredentials}>
+          <label htmlFor="backend-username">Backend administrator username<input id="backend-username" autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} required /></label>
+          <label htmlFor="backend-password">Backend administrator password<input id="backend-password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
+          <div className="heading-actions"><button className="primary-action" type="submit" disabled={authLoading}>{authLoading ? "Checking credentials…" : "Authenticate with backend"}</button><button className="secondary-action" type="button" onClick={clearCredentials} disabled={!authenticated}>Clear credentials</button></div>
+        </form>
+        <p className="disclaimer-note">Credentials and the CSRF token are held in JavaScript memory only and are cleared on reload or when you choose Clear credentials. The backend uses HTTP Basic, so use HTTPS for private deployments; this frontend does not write credentials to browser storage.</p>
+      </section>
+      <section className="analytics-panel">
+        <div className="section-title"><div><h2>Proxy and configuration status</h2><p>Configuration is limited to service URLs and does not reveal secrets.</p></div></div>
+        <dl className="settings-list">
+          <div><dt>Backend base URL</dt><dd>{api.baseUrl}</dd></div>
+          <div><dt>Backend health</dt><dd>GET /actuator/health (public, response details depend on backend configuration)</dd></div>
+          <div><dt>ML proxy</dt><dd>Expected under /api/ml; proxy routes are not currently implemented in the backend repository.</dd></div>
+          <div><dt>Database connectivity</dt><dd>{databaseHealth || "Not separately exposed by the current health response."}</dd></div>
+        </dl>
+      </section>
     </section>
   );
 }

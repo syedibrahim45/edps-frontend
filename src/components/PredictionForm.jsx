@@ -45,9 +45,6 @@ function PredictionForm({
   });
 
   const handleChange = (e) => {
-    if (["name", "age", "gender", "phone", "email"].includes(e.target.name)) {
-      setSelectedPatientId("");
-    }
     setFormData({
       ...formData,
       [e.target.name]: e.target.value,
@@ -158,7 +155,7 @@ function PredictionForm({
         <div className="section-icon">♙</div>
         <div>
           <h2>Patient Health Information</h2>
-          <p>Enter patient details for AI-based disease prediction</p>
+          <p>Enter or select a backend patient for an experimental academic risk estimate</p>
         </div>
       </div>
 

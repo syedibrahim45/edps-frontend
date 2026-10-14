@@ -1,13 +1,32 @@
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8080")
   .trim()
   .replace(/\/+$/, "");
-const ML_API_BASE_URL = (import.meta.env.VITE_ML_API_BASE_URL || "http://localhost:8000")
-  .trim()
-  .replace(/\/+$/, "");
-const FEDERATED_RESULTS_URL = (import.meta.env.VITE_FEDERATED_RESULTS_URL || "").trim();
 const REQUEST_TIMEOUT_MS = 12000;
+let authorizationHeader = "";
+let csrfToken = "";
 
-async function request(path, options = {}, baseUrl = API_BASE_URL) {
+function encodeBasicCredentials(username, password) {
+  const bytes = new TextEncoder().encode(`${username}:${password}`);
+  let binary = "";
+  bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
+  return `Basic ${btoa(binary)}`;
+}
+
+async function loadCsrfToken() {
+  const result = await request("/csrf", {}, API_BASE_URL, { csrf: false });
+  if (typeof result?.token !== "string" || !result.token) {
+    throw new Error("The backend did not return a CSRF token. Check the production security configuration.");
+  }
+  csrfToken = result.token;
+  return result;
+}
+
+async function request(path, options = {}, baseUrl = API_BASE_URL, settings = {}) {
+  const method = (options.method || "GET").toUpperCase();
+  const isWrite = !["GET", "HEAD", "OPTIONS"].includes(method);
+  if (isWrite && authorizationHeader && settings.csrf !== false && !csrfToken) {
+    await loadCsrfToken();
+  }
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
@@ -19,8 +38,11 @@ async function request(path, options = {}, baseUrl = API_BASE_URL) {
       ...options,
       signal: controller.signal,
       cache: "no-store",
+      credentials: "include",
       headers: {
         ...(options.body ? { "Content-Type": "application/json" } : {}),
+        ...(authorizationHeader ? { Authorization: authorizationHeader } : {}),
+        ...(isWrite && csrfToken ? { "X-XSRF-TOKEN": csrfToken } : {}),
         ...options.headers,
       },
     });
@@ -36,6 +58,12 @@ async function request(path, options = {}, baseUrl = API_BASE_URL) {
     }
 
     if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error("Authentication required or credentials were rejected. Enter the backend administrator credentials in Service health & settings; credentials are kept only in this tab.");
+      }
+      if (response.status === 403) {
+        throw new Error("The backend denied this request. In production, refresh authentication and CSRF state in Service health & settings.");
+      }
       const fieldDetails = Object.entries(result?.fieldErrors || {})
         .map(([field, message]) => `${field}: ${message}`)
         .join("; ");
@@ -91,6 +119,42 @@ function unwrapRecord(result) {
 export const api = {
   baseUrl: API_BASE_URL,
 
+  setCredentials(username, password) {
+    if (!username || !password) {
+      throw new Error("Enter both the backend username and password.");
+    }
+    authorizationHeader = encodeBasicCredentials(username, password);
+    csrfToken = "";
+  },
+
+  clearCredentials() {
+    authorizationHeader = "";
+    csrfToken = "";
+  },
+
+  hasCredentials() {
+    return Boolean(authorizationHeader);
+  },
+
+  async authenticate(username, password) {
+    this.setCredentials(username, password);
+    try {
+      await loadCsrfToken();
+      await this.getPatients();
+    } catch (error) {
+      this.clearCredentials();
+      throw error;
+    }
+  },
+
+  async getBackendHealth() {
+    const result = unwrapRecord(await request("/actuator/health"));
+    if (!result || typeof result.status !== "string") {
+      throw new Error("The backend health endpoint returned an unexpected response.");
+    }
+    return result;
+  },
+
   async getPatients() {
     return unwrapList(await request("/patients"), "patient");
   },
@@ -136,31 +200,51 @@ export const api = {
     return result;
   },
 
+  async getAuditRecords() {
+    return unwrapList(await request("/integrity/audit/records"), "audit record");
+  },
+
   async getGlobalExplainability() {
-    const result = await request("/explainability/global", {}, ML_API_BASE_URL);
+    const result = await request("/api/ml/explainability/global");
     if (result?.scope !== "global" || !Array.isArray(result.feature_importance)
         || !Number.isInteger(result.sample_count)
+        || typeof result.method !== "string"
         || result.feature_importance.some((item) => typeof item.feature !== "string"
           || !Number.isFinite(item.mean_importance)
           || !Number.isFinite(item.std_importance))) {
-      throw new Error("The ML service returned an unexpected global explainability response.");
+      throw new Error("The backend explainability proxy returned an unexpected global explainability response.");
+    }
+    return result;
+  },
+
+  async getIndividualExplainability(features) {
+    const result = await request("/api/ml/explainability/individual", {
+      method: "POST",
+      body: JSON.stringify(features),
+    });
+    if (result?.scope !== "individual" || !Array.isArray(result.feature_effects)
+        || !result.prediction || typeof result.reference_population !== "string"
+        || result.feature_effects.some((item) => typeof item.feature !== "string"
+          || !Number.isFinite(item.input_value)
+          || !Number.isFinite(item.reference_value)
+          || !Number.isFinite(item.probability_with_input)
+          || !Number.isFinite(item.probability_with_reference)
+          || !Number.isFinite(item.probability_delta))) {
+      throw new Error("The backend explainability proxy returned an unexpected individual explanation response.");
     }
     return result;
   },
 
   async getFederatedResults() {
-    if (!FEDERATED_RESULTS_URL) {
-      throw new Error("FedAvg results are not configured. Set VITE_FEDERATED_RESULTS_URL to a versioned results file generated by the Python simulation.");
-    }
-    const url = /^https?:\/\//i.test(FEDERATED_RESULTS_URL)
-      ? FEDERATED_RESULTS_URL
-      : new URL(FEDERATED_RESULTS_URL, globalThis.location?.origin || "http://localhost").toString();
-    const result = await request(url);
-    if (!result || typeof result !== "object" || !Number.isInteger(result.client_count) || result.client_count < 1
+    const result = await request("/api/ml/federated/results");
+    if (result?.status !== "completed" || result?.method !== "FedAvg"
+        || result?.simulation_data !== "synthetic"
+        || !Number.isInteger(result.client_count) || result.client_count < 1
         || !Number.isInteger(result.rounds) || result.rounds < 1
-        || typeof result.accuracy !== "number" || !Number.isFinite(result.accuracy)
-        || result.accuracy < 0 || result.accuracy > 1) {
-      throw new Error("The configured FedAvg results file is missing required simulation metrics.");
+        || !Array.isArray(result.per_round_metrics)
+        || !result.final_evaluation_metrics
+        || !Number.isFinite(result.final_evaluation_metrics.accuracy)) {
+      throw new Error("The backend federated-results proxy returned an unexpected simulation response.");
     }
     return result;
   },

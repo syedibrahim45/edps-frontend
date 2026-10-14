@@ -11,6 +11,7 @@ function response(body, status = 200) {
 
 describe("EDPS API client", () => {
   beforeEach(() => {
+    api.clearCredentials();
     vi.stubGlobal("fetch", vi.fn());
   });
 
@@ -22,7 +23,36 @@ describe("EDPS API client", () => {
       .mockResolvedValueOnce(response("deleted"))
       .mockResolvedValueOnce(response([]))
       .mockResolvedValueOnce(response({ id: 8 }))
-      .mockResolvedValueOnce(response({ valid: true, checkedRecords: 2, verifiedAt: "now" }));
+      .mockResolvedValueOnce(response({ valid: true, checkedRecords: 2, verifiedAt: "now" }))
+      .mockResolvedValueOnce(response([{ id: 1, reference: "PATIENT:1", timestamp: "now" }]))
+      .mockResolvedValueOnce(response({
+        scope: "global",
+        method: "permutation_importance",
+        sample_count: 20,
+        feature_importance: [{ feature: "glucose", mean_importance: 0.1, std_importance: 0.02 }],
+      }))
+      .mockResolvedValueOnce(response({
+        scope: "individual",
+        reference_population: "synthetic median/mode",
+        prediction: { prediction: 1, disease: "High Risk", probability: 0.82 },
+        feature_effects: [{
+          feature: "glucose",
+          input_value: 140,
+          reference_value: 100,
+          probability_with_input: 0.82,
+          probability_with_reference: 0.5,
+          probability_delta: 0.32,
+        }],
+      }))
+      .mockResolvedValueOnce(response({
+        status: "completed",
+        method: "FedAvg",
+        simulation_data: "synthetic",
+        client_count: 3,
+        rounds: 1,
+        per_round_metrics: [{ round: 1, accuracy: 0.5 }],
+        final_evaluation_metrics: { accuracy: 0.5 },
+      }));
 
     await api.getPatients();
     await api.createPatient({ name: "Synthetic Demo", age: 40 });
@@ -31,6 +61,10 @@ describe("EDPS API client", () => {
     await api.getPredictions();
     await api.createPrediction({ patientId: 12, patient: { id: 12, gender: "Female" } });
     await api.verifyIntegrity();
+    await api.getAuditRecords();
+    await api.getGlobalExplainability();
+    await api.getIndividualExplainability({ age: 40, gender: 1, blood_pressure: 120, glucose: 100, bmi: 24, heart_rate: 72, cholesterol: 180 });
+    await api.getFederatedResults();
 
     expect(fetch.mock.calls.map(([url, options]) => [url, options.method || "GET"])).toEqual([
       ["http://localhost:8080/patients", "GET"],
@@ -40,6 +74,10 @@ describe("EDPS API client", () => {
       ["http://localhost:8080/predictions", "GET"],
       ["http://localhost:8080/predictions", "POST"],
       ["http://localhost:8080/integrity/audit/verify", "GET"],
+      ["http://localhost:8080/integrity/audit/records", "GET"],
+      ["http://localhost:8080/api/ml/explainability/global", "GET"],
+      ["http://localhost:8080/api/ml/explainability/individual", "POST"],
+      ["http://localhost:8080/api/ml/federated/results", "GET"],
     ]);
     expect(JSON.parse(fetch.mock.calls[5][1].body)).toEqual({
       patientId: 12,
@@ -86,11 +124,33 @@ describe("EDPS API client", () => {
     fetch
       .mockResolvedValueOnce(response({ valid: "yes" }))
       .mockResolvedValueOnce(response({ scope: "patient", feature_importance: [], sample_count: 20 }))
-      .mockResolvedValueOnce(response({ client_count: 0, rounds: 10, accuracy: 1 }));
+      .mockResolvedValueOnce(response({ status: "completed", method: "FedAvg", simulation_data: "synthetic", client_count: 0, rounds: 10, per_round_metrics: [], final_evaluation_metrics: { accuracy: 1 } }));
 
     await expect(api.verifyIntegrity()).rejects.toThrow("unexpected response");
     await expect(api.getGlobalExplainability()).rejects.toThrow("unexpected global explainability response");
-    await expect(api.getFederatedResults()).rejects.toThrow("not configured");
+    await expect(api.getFederatedResults()).rejects.toThrow("unexpected simulation response");
+  });
+
+  it("keeps Basic credentials in memory and obtains a CSRF token for protected writes", async () => {
+    fetch
+      .mockResolvedValueOnce(response({ token: "csrf-token", headerName: "X-XSRF-TOKEN" }))
+      .mockResolvedValueOnce(response([]))
+      .mockResolvedValueOnce(response({ id: 9 }));
+
+    await api.authenticate("demo-admin", "temporary-secret");
+    await api.createPatient({ name: "Synthetic Sample" });
+
+    expect(api.hasCredentials()).toBe(true);
+    expect(fetch.mock.calls[0][1].credentials).toBe("include");
+    expect(fetch.mock.calls[1][1].headers.Authorization).toMatch(/^Basic /);
+    expect(fetch.mock.calls[2][1].headers["X-XSRF-TOKEN"]).toBe("csrf-token");
+    api.clearCredentials();
+    expect(api.hasCredentials()).toBe(false);
+  });
+
+  it("reports rejected authentication without treating it as a successful response", async () => {
+    fetch.mockResolvedValue(response({ status: 401, error: "Unauthorized" }, 401));
+    await expect(api.getPatients()).rejects.toThrow("Authentication required");
   });
 
   it("normalizes finite model probabilities", () => {

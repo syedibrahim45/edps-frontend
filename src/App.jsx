@@ -43,6 +43,8 @@ function App() {
   const [explainabilityError, setExplainabilityError] = useState("");
   const [backendHealth, setBackendHealth] = useState(null);
   const [backendHealthError, setBackendHealthError] = useState("");
+  const [mlHealth, setMlHealth] = useState(null);
+  const [mlHealthError, setMlHealthError] = useState("");
   const [auditStatus, setAuditStatus] = useState(null);
   const [auditStatusError, setAuditStatusError] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
@@ -80,15 +82,22 @@ function App() {
 
   const refreshServiceIndicators = useCallback(async () => {
     setBackendHealthError("");
+    setMlHealthError("");
     setAuditStatusError("");
-    const [healthResult, auditResult] = await Promise.allSettled([
+    const [healthResult, mlHealthResult, auditResult] = await Promise.allSettled([
       api.getBackendHealth(),
+      api.getMlHealth(),
       api.verifyIntegrity(),
     ]);
     if (healthResult.status === "fulfilled") setBackendHealth(healthResult.value);
     else {
       setBackendHealth(null);
       setBackendHealthError(healthResult.reason.message || "Backend health is unavailable.");
+    }
+    if (mlHealthResult.status === "fulfilled") setMlHealth(mlHealthResult.value);
+    else {
+      setMlHealth(null);
+      setMlHealthError(mlHealthResult.reason.message || "ML service health is unavailable.");
     }
     if (auditResult.status === "fulfilled") setAuditStatus(auditResult.value);
     else {
@@ -125,6 +134,9 @@ function App() {
     api.getBackendHealth()
       .then((status) => { if (active) setBackendHealth(status); })
       .catch((error) => { if (active) setBackendHealthError(error.message || "Backend health is unavailable."); });
+    api.getMlHealth()
+      .then((status) => { if (active) setMlHealth(status); })
+      .catch((error) => { if (active) setMlHealthError(error.message || "ML service health is unavailable."); });
     api.verifyIntegrity()
       .then((status) => { if (active) setAuditStatus(status); })
       .catch((error) => { if (active) setAuditStatusError(error.message || "Audit verification is unavailable."); });
@@ -563,10 +575,10 @@ function App() {
 
           <section className="dashboard-service-strip" aria-label="Live backend service status">
             <article><span>Spring Boot</span><strong className={backendHealth?.status === "UP" ? "service-up" : backendHealthError ? "service-down" : ""}>{backendHealth?.status || (backendHealthError ? "Disconnected" : "Checking…")}</strong><small>GET /actuator/health</small></article>
-            <article><span>ML service</span><strong className="service-unavailable">Not exposed by backend</strong><small>Proxy health endpoint is not implemented</small></article>
+            <article><span>ML service</span><strong className={mlHealth?.status === "UP" ? "service-up" : mlHealthError || mlHealth?.status === "DEGRADED" ? "service-down" : ""}>{mlHealth?.status || (mlHealthError ? "Disconnected" : "Checking…")}</strong><small>{mlHealth?.model_status || mlHealthError || "GET /api/ml/health"}</small></article>
             <article><span>Integrity audit</span><strong className={auditStatus?.valid ? "service-up" : auditStatus?.valid === false ? "service-down" : ""}>{auditStatus ? (auditStatus.valid ? "Verified" : "Failed") : auditStatusError ? "Unavailable" : "Checking…"}</strong><small>{auditStatus ? `${auditStatus.checkedRecords} records checked` : auditStatusError || "Backend verification pending"}</small></article>
           </section>
-          {(backendHealthError || auditStatusError) && <div className="page-error dashboard-api-error" role="alert"><div><strong>Some live status checks are unavailable.</strong>{backendHealthError && <p>Backend: {backendHealthError}</p>}{auditStatusError && <p>Audit: {auditStatusError}</p>}</div><button className="secondary-action" type="button" onClick={refreshServiceIndicators}>Retry checks</button></div>}
+          {(backendHealthError || mlHealthError || auditStatusError) && <div className="page-error dashboard-api-error" role="alert"><div><strong>Some live status checks are unavailable.</strong>{backendHealthError && <p>Backend: {backendHealthError}</p>}{mlHealthError && <p>ML service: {mlHealthError}</p>}{auditStatusError && <p>Audit: {auditStatusError}</p>}</div><button className="secondary-action" type="button" onClick={refreshServiceIndicators}>Retry checks</button></div>}
 
           <section className="analytics-panel dashboard-risk-panel" aria-labelledby="dashboard-risk-title">
             <div className="section-title"><div><span className="page-eyebrow">BACKEND RECORDS</span><h2 id="dashboard-risk-title">Prediction risk distribution</h2><p>Risk categories from saved prediction responses only</p></div><button className="text-action" type="button" onClick={() => setActiveSection("analytics")}>Open analytics</button></div>

@@ -8,17 +8,17 @@
 
 | Command | Result | Details |
 | --- | --- | --- |
-| `npm test` | Passed | 3 test files, 16 tests passed, 0 failed. |
+| `npm test` | Passed | 3 test files, 17 tests passed, 0 failed. |
 | `npm run lint` | Passed | ESLint completed with no errors or warnings. |
 | `npm run build` | Passed | Vite production build completed successfully. |
 
-The test script uses Vitest with one fork worker and extended test/hook timeouts to run reliably in this Windows environment. The suite covers API errors, response validation, credentials/CSRF behavior, patient workflows, prediction form behavior, history details, Explainable AI and federated result rendering, integrity verification gating, and service health/settings. Component tests mock backend responses; they do not establish live integration with Spring Boot, MySQL, or the ML service.
+The test script uses Vitest with one fork worker and extended test/hook timeouts to run reliably in this Windows environment. The suite covers API errors, response validation, credentials/CSRF behavior, patient workflows, prediction form behavior, history details, Explainable AI and federated result rendering, integrity verification gating, and backend/ML service health. Component tests mock backend responses; they do not establish live integration with Spring Boot or MySQL.
 
 ## Browser and integration scope
 
-A local Vite browser smoke check succeeded at desktop load and a 390 × 844 mobile viewport. Navigation to Federated Learning rendered the expected page, the three client cards were explicitly marked simulated, and the backend-unavailable state appeared when the configured Spring Boot service could not be reached. This was a UI smoke check only, not a backend-backed end-to-end test. No real Spring Boot, MySQL, or Python ML-service-backed workflow was run.
+On 2026-10-14, the frontend loaded in the integrated browser at `http://127.0.0.1:5173/`. The dashboard and Federated Learning page rendered. Since Spring Boot was not running, the browser showed `ERR_CONNECTION_REFUSED` and the explicit backend-unavailable state; it did not silently use FastAPI directly. A full patient/prediction/history/audit browser flow was not run because database credentials were not available to the test session.
 
-Backend/ML integration status is therefore based on source-contract inspection, not a live-service test. The Spring Boot repository supports patient and prediction APIs, audit verification/history, actuator health, and production CSRF. It does not currently implement the frontend's intended `/api/ml/explainability/global`, `/api/ml/explainability/individual`, `/api/ml/federated/results`, or a FastAPI health proxy. Those pages surface unavailable responses rather than manufacturing successful results or bypassing Spring Boot.
+FastAPI was started at `http://127.0.0.1:8000/` and verified directly: health, valid synthetic prediction, global explainability, individual explainability, and a completed 3-client/10-round synthetic FedAvg result returned valid data. An invalid prediction request returned HTTP 422. These direct checks do not constitute a live Spring-to-FastAPI proxy test. The Spring Boot source and tests include `/api/ml/health`, explainability, and federated-results proxies, but their live end-to-end operation and MySQL persistence remain unverified in this run.
 
 ## Reproduction
 

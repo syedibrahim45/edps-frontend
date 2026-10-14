@@ -325,7 +325,7 @@ export function ExplainabilityPage({ patients }) {
           </>
         )}
       </section>
-      <p className="disclaimer-note">Both endpoints are expected through the Spring Boot proxy at <code>/api/ml/explainability/…</code>. The current backend repository must expose these proxy routes before results can be displayed. No ML service is called directly by this page.</p>
+      <p className="disclaimer-note">Both results are retrieved through the Spring Boot proxy at <code>/api/ml/explainability/…</code>. No direct browser-to-ML-service request is made.</p>
     </section>
   );
 }
@@ -415,7 +415,7 @@ export function FederatedLearningPage() {
           </>
         ) : null}
       </section>
-      <p className="disclaimer-note">Expected backend route: <code>GET /api/ml/federated/results</code>. The current backend repository does not expose an ML proxy, so no direct FastAPI fallback is used.</p>
+      <p className="disclaimer-note">Results come from the Spring Boot proxy at <code>GET /api/ml/federated/results</code>. No direct browser-to-ML-service request is made.</p>
     </section>
   );
 }
@@ -508,6 +508,9 @@ export function ServiceHealthPage({ onAuthenticated }) {
   const [health, setHealth] = useState(null);
   const [healthLoading, setHealthLoading] = useState(true);
   const [healthError, setHealthError] = useState("");
+  const [mlHealth, setMlHealth] = useState(null);
+  const [mlHealthLoading, setMlHealthLoading] = useState(true);
+  const [mlHealthError, setMlHealthError] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
@@ -515,25 +518,47 @@ export function ServiceHealthPage({ onAuthenticated }) {
   const [authError, setAuthError] = useState("");
   const [authenticated, setAuthenticated] = useState(api.hasCredentials());
 
-  const refreshHealth = async () => {
+  const applyHealthResults = useCallback(([backendResult, mlResult]) => {
+    if (backendResult.status === "fulfilled") setHealth(backendResult.value);
+    else {
+      setHealth(null);
+      setHealthError(backendResult.reason.message || "Backend health could not be checked.");
+    }
+    if (mlResult.status === "fulfilled") setMlHealth(mlResult.value);
+    else {
+      setMlHealth(null);
+      setMlHealthError(mlResult.reason.message || "ML service health could not be checked.");
+    }
+  }, []);
+
+  const refreshHealth = useCallback(async () => {
     setHealthLoading(true);
     setHealthError("");
-    try {
-      setHealth(await api.getBackendHealth());
-    } catch (error) {
-      setHealth(null);
-      setHealthError(error.message || "Backend health could not be checked.");
-    } finally {
-      setHealthLoading(false);
-    }
-  };
+    setMlHealthLoading(true);
+    setMlHealthError("");
+    applyHealthResults(await Promise.allSettled([
+      api.getBackendHealth(),
+      api.getMlHealth(),
+    ]));
+    setHealthLoading(false);
+    setMlHealthLoading(false);
+  }, [applyHealthResults]);
 
   useEffect(() => {
-    api.getBackendHealth()
-      .then(setHealth)
-      .catch((error) => setHealthError(error.message || "Backend health could not be checked."))
-      .finally(() => setHealthLoading(false));
-  }, []);
+    let active = true;
+    Promise.allSettled([
+      api.getBackendHealth(),
+      api.getMlHealth(),
+    ])
+      .then((results) => { if (active) applyHealthResults(results); })
+      .finally(() => {
+        if (active) {
+          setHealthLoading(false);
+          setMlHealthLoading(false);
+        }
+      });
+    return () => { active = false; };
+  }, [applyHealthResults]);
 
   const submitCredentials = async (event) => {
     event.preventDefault();
@@ -572,7 +597,7 @@ export function ServiceHealthPage({ onAuthenticated }) {
         <article><span>Frontend</span><strong className="service-state service-up">Running</strong><small>Vite application loaded</small></article>
         <article><span>Spring Boot API</span><strong className={`service-state ${health?.status === "UP" ? "service-up" : "service-down"}`}>{healthLoading ? "Checking…" : health?.status || "Disconnected"}</strong><small>{api.baseUrl}/actuator/health</small></article>
         <article><span>MySQL database</span><strong className="service-state">{databaseHealth || "Not reported"}</strong><small>{databaseHealth ? "Reported by Spring Boot health details" : "Backend health response does not expose component details"}</small></article>
-        <article><span>FastAPI ML</span><strong className="service-state service-unavailable">Not exposed</strong><small>The backend has no ML health proxy route; this UI does not call FastAPI directly.</small></article>
+        <article><span>FastAPI ML</span><strong className={`service-state ${mlHealth?.status === "UP" ? "service-up" : mlHealthError || mlHealth?.status === "DEGRADED" ? "service-down" : ""}`}>{mlHealthLoading ? "Checking…" : mlHealth?.status || "Disconnected"}</strong><small>{mlHealth?.model_status || mlHealthError || "GET /api/ml/health through Spring Boot"}</small></article>
       </div>
       <section className="analytics-panel auth-settings-panel" aria-labelledby="auth-settings-heading">
         <div className="section-title"><div><h2 id="auth-settings-heading">Backend authentication</h2><p>Spring Boot production mode uses one configured HTTP Basic administrator and requires a CSRF token for write operations.</p></div><span className={`status-pill ${authenticated ? "status-success" : "status-warning"}`}>{authenticated ? "Credentials set in this tab" : "No credentials in memory"}</span></div>
@@ -590,7 +615,7 @@ export function ServiceHealthPage({ onAuthenticated }) {
         <dl className="settings-list">
           <div><dt>Backend base URL</dt><dd>{api.baseUrl}</dd></div>
           <div><dt>Backend health</dt><dd>GET /actuator/health (public, response details depend on backend configuration)</dd></div>
-          <div><dt>ML proxy</dt><dd>Expected under /api/ml; proxy routes are not currently implemented in the backend repository.</dd></div>
+          <div><dt>ML proxy</dt><dd>GET /api/ml/health, GET /api/ml/explainability/global, POST /api/ml/explainability/individual, and GET /api/ml/federated/results.</dd></div>
           <div><dt>Database connectivity</dt><dd>{databaseHealth || "Not separately exposed by the current health response."}</dd></div>
         </dl>
       </section>

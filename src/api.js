@@ -155,6 +155,16 @@ export const api = {
     return result;
   },
 
+  async getMlHealth() {
+    const result = await request("/api/ml/health");
+    if (!result || !["UP", "DEGRADED"].includes(result.status)
+        || typeof result.service !== "string"
+        || typeof result.model_status !== "string") {
+      throw new Error("The backend ML health proxy returned an unexpected response.");
+    }
+    return result;
+  },
+
   async getPatients() {
     return unwrapList(await request("/patients"), "patient");
   },

@@ -78,21 +78,21 @@ The backend `dev` profile permits local API requests. In production, use the Ser
 - Integrity Audit: chain verification and backend event history.
 - Service Health & Settings: `/actuator/health`, reported database health details when available, production authentication, and route readiness.
 
-### ML proxy routes still required
+### ML proxy routes
 
-The current Spring Boot repository does **not** implement any `/api/ml/**` controller or proxy routes. The frontend is prepared to request:
+The Spring Boot backend proxies FastAPI responses so browser clients never call the ML service directly:
 
 | Intended frontend request | Python service source route | Current status |
 | --- | --- | --- |
-| `GET /api/ml/explainability/global` | `GET /explainability/global` | Spring proxy not implemented |
-| `POST /api/ml/explainability/individual` | `POST /explainability/individual` | Spring proxy not implemented |
-| `GET /api/ml/federated/results` | `GET /federated/results` | Spring proxy not implemented |
+| `GET /api/ml/health` | `GET /health` | Implemented |
+| `GET /api/ml/explainability/global` | `GET /explainability/global` | Implemented |
+| `POST /api/ml/explainability/individual` | `POST /explainability/individual` | Implemented |
+| `GET /api/ml/federated/results` | `GET /federated/results` | Implemented |
 
-The frontend therefore shows the actual HTTP failure and does not call FastAPI directly. The expected transparent proxy response schemas are validated against the ML service's Pydantic response models. Spring Boot must implement these proxy endpoints (including production authentication/authorization) before the feature dashboards can display results.
+The frontend validates the expected response shapes and reports proxy failures without making direct browser-to-FastAPI requests. Production routes use the configured Spring security policy.
 
 ## Known backend limitations
 
-- The Spring Boot repository currently has no proxy for Python ML health, explainability, or federated-results routes. The Explainable AI and Federated Learning pages surface this as unavailable until implemented.
 - Actuator health may omit database component details depending on the backend management configuration; the frontend reports “Not reported” rather than inferring database state.
 - Integrity verification is returned as a chain-level summary. Audit record history is separately fetched from `/integrity/audit/records`.
 - Production authentication is one shared HTTP Basic administrator, not per-user login or authorization. Configure TLS for production; credentials remain only in tab memory.

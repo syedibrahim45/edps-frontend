@@ -25,6 +25,7 @@ describe("EDPS API client", () => {
       .mockResolvedValueOnce(response({ id: 8 }))
       .mockResolvedValueOnce(response({ valid: true, checkedRecords: 2, verifiedAt: "now" }))
       .mockResolvedValueOnce(response([{ id: 1, reference: "PATIENT:1", timestamp: "now" }]))
+      .mockResolvedValueOnce(response({ status: "UP", service: "EDPS ML Service", model_status: "ready" }))
       .mockResolvedValueOnce(response({
         scope: "global",
         method: "permutation_importance",
@@ -62,6 +63,7 @@ describe("EDPS API client", () => {
     await api.createPrediction({ patientId: 12, patient: { id: 12, gender: "Female" } });
     await api.verifyIntegrity();
     await api.getAuditRecords();
+    await api.getMlHealth();
     await api.getGlobalExplainability();
     await api.getIndividualExplainability({ age: 40, gender: 1, blood_pressure: 120, glucose: 100, bmi: 24, heart_rate: 72, cholesterol: 180 });
     await api.getFederatedResults();
@@ -75,6 +77,7 @@ describe("EDPS API client", () => {
       ["http://localhost:8080/predictions", "POST"],
       ["http://localhost:8080/integrity/audit/verify", "GET"],
       ["http://localhost:8080/integrity/audit/records", "GET"],
+      ["http://localhost:8080/api/ml/health", "GET"],
       ["http://localhost:8080/api/ml/explainability/global", "GET"],
       ["http://localhost:8080/api/ml/explainability/individual", "POST"],
       ["http://localhost:8080/api/ml/federated/results", "GET"],
@@ -101,6 +104,14 @@ describe("EDPS API client", () => {
     fetch.mockRejectedValue(new TypeError("Failed to fetch"));
 
     await expect(api.getPatients()).rejects.toThrow("Cannot reach the configured service");
+  });
+
+  it("rejects an unexpected ML health proxy response", async () => {
+    fetch.mockResolvedValue(response({ status: "UP" }));
+
+    await expect(api.getMlHealth()).rejects.toThrow(
+      "The backend ML health proxy returned an unexpected response.",
+    );
   });
 
   it("times out a stalled request", async () => {

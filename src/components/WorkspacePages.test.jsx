@@ -14,6 +14,7 @@ vi.mock("../api", () => ({
   api: {
     getAuditRecords: vi.fn(),
     getBackendHealth: vi.fn(),
+    getMlHealth: vi.fn(),
     getFederatedResults: vi.fn(),
     getGlobalExplainability: vi.fn(),
     getIndividualExplainability: vi.fn(),
@@ -41,6 +42,7 @@ describe("EDPS workspace pages", () => {
     vi.clearAllMocks();
     api.getAuditRecords.mockResolvedValue([]);
     api.getBackendHealth.mockResolvedValue({ status: "UP" });
+    api.getMlHealth.mockResolvedValue({ status: "UP", service: "EDPS ML Service", model_status: "ready" });
   });
 
   it("creates and updates patient records through the supplied backend handlers", async () => {
@@ -174,7 +176,8 @@ describe("EDPS workspace pages", () => {
     api.authenticate.mockResolvedValue(undefined);
     const onAuthenticated = vi.fn();
     render(<ServiceHealthPage onAuthenticated={onAuthenticated} />);
-    expect(await screen.findByText("UP")).not.toBeNull();
+    expect(await screen.findAllByText("UP")).toHaveLength(2);
+    expect(await screen.findByText("ready")).not.toBeNull();
     fireEvent.change(screen.getByLabelText("Backend administrator username"), { target: { value: "demo-admin" } });
     fireEvent.change(screen.getByLabelText("Backend administrator password"), { target: { value: "temporary-password" } });
     fireEvent.click(screen.getByRole("button", { name: "Authenticate with backend" }));

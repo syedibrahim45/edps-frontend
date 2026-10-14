@@ -2,7 +2,7 @@
 
 ## Readiness
 
-The frontend production build is deployable as a static Vite application. Full feature deployment is **not yet complete** because the current Spring Boot repository does not expose the `/api/ml/**` proxy routes used by Explainable AI and Federated Learning. The dashboard deliberately does not call FastAPI directly from the browser.
+The frontend production build is deployable as a static Vite application. The Spring Boot backend provides the `/api/ml/**` health, explainability, and federated-results proxy routes used by the dashboard; the browser does not call FastAPI directly.
 
 Production deployment also depends on HTTPS, the production Spring profile, valid MySQL configuration, and the existing shared HTTP Basic administrator. This is not a multi-user authentication system and should not be presented as one.
 
@@ -33,13 +33,13 @@ Do not place backend administrator credentials, database passwords, or other sec
 3. Set `CORS_ALLOWED_ORIGINS` to the exact HTTPS frontend origin. The backend enables credentialed CORS and expects `Authorization`, `Content-Type`, and `X-XSRF-TOKEN`.
 4. The frontend requests `GET /csrf` and sends its token on `POST`, `PUT`, and `DELETE`. Browser cross-origin cookie behavior must be tested with the real deployed origins.
 5. Ensure `GET /actuator/health` is reachable for health checks. The frontend only reports database health when the response includes a database component; it does not infer database status.
-6. Keep FastAPI private behind Spring Boot. The existing backend's `ML_SERVICE_URL` integration currently covers prediction calls only.
-7. Before enabling the Explainable AI and Federated Learning pages in production, implement and secure Spring Boot routes for:
+6. Keep FastAPI private behind Spring Boot. The backend's `ML_SERVICE_URL` integration covers prediction, health, explainability, and federated-results requests.
+7. Keep the proxy routes protected by the Spring production authentication policy:
    - `GET /api/ml/explainability/global`
    - `POST /api/ml/explainability/individual`
    - `GET /api/ml/federated/results`
 
-   Proxy responses must match the DTOs documented by the Python ML service. Add backend auth/CSRF policy and tests for those routes before deployment.
+   Also verify `GET /api/ml/health`. Production reads require the configured administrator authentication; validate these routes after deployment.
 
 ## Static host
 
@@ -53,5 +53,5 @@ Deploy the contents of `dist/` to the selected static host and configure SPA fal
 - [ ] Production admin credentials are delivered only through a secret manager.
 - [ ] Spring Boot production authentication and CSRF flow has been exercised in a browser.
 - [ ] Synthetic-only demonstration data is used.
-- [ ] ML explainability/federated proxy routes are implemented and tested, or those pages are presented as unavailable.
+- [ ] ML health, explainability, and federated-results routes are reachable only through the authenticated Spring proxy and have been tested.
 - [ ] No live-hospital or decentralized-blockchain claim is made.

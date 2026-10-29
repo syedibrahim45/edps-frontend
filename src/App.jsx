@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import "./App.css";
 import { api, probabilityPercent } from "./api";
 import PredictionForm from "./components/PredictionForm";
+import DiabetesScreeningPage from "./components/DiabetesScreeningPage";
 import {
   AboutPage,
   AnalyticsPage,
@@ -17,6 +18,7 @@ import {
 const navigationItems = [
   { id: "dashboard", icon: "⌂", label: "Dashboard" },
   { id: "prediction", icon: "♡", label: "Disease Prediction" },
+  { id: "diabetes-screening", icon: "◉", label: "Diabetes Screening" },
   { id: "patients", icon: "♙", label: "Patients" },
   { id: "history", icon: "◷", label: "Prediction History" },
   { id: "explainability", icon: "◈", label: "Explainable AI" },
@@ -282,6 +284,8 @@ function App() {
 
   const renderActivePage = () => {
     switch (activeSection) {
+      case "diabetes-screening":
+        return <DiabetesScreeningPage />;
       case "patients":
         return <PatientsPage patients={patients} loading={patientLoading} error={patientError} actionError={actionError} actionLoading={actionLoading} onRetry={loadPatients} onAddPatient={addPatient} onUpdatePatient={updatePatient} onDeletePatient={deletePatient} />;
       case "history":

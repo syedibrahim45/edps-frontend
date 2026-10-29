@@ -9,6 +9,28 @@ function response(body, status = 200) {
   };
 }
 
+function diabetesResponse() {
+  return {
+    predicted_class: 1,
+    predicted_label: "Prediabetes or diabetes reported in dataset label",
+    positive_class_score: 0.72,
+    threshold: 0.6447012298480324,
+    model_id: "logistic_regression_balanced",
+    model_version: "cdc-brfss2015-binary-v1",
+    disclaimer: "Experimental screening output; not a clinical diagnosis.",
+  };
+}
+
+function diabetesFeatures() {
+  return {
+    HighBP: 1, HighChol: 0, CholCheck: 1, Smoker: 0, Stroke: 0,
+    HeartDiseaseorAttack: 0, PhysActivity: 1, Fruits: 1, Veggies: 1,
+    HvyAlcoholConsump: 0, AnyHealthcare: 1, NoDocbcCost: 0, DiffWalk: 0,
+    Sex: 0, BMI: 0.5, GenHlth: 3, MentHlth: 0, PhysHlth: 7,
+    Age: 1, Education: 1, Income: 1,
+  };
+}
+
 describe("EDPS API client", () => {
   beforeEach(() => {
     api.clearCredentials();
@@ -98,6 +120,61 @@ describe("EDPS API client", () => {
     await expect(api.createPatient({ age: 0 })).rejects.toThrow(
       "EDPS API request failed (400): Patient details are invalid. patient.age: must be greater than or equal to 1",
     );
+  });
+
+  it("posts diabetes survey features only to the Spring Boot route", async () => {
+    const features = diabetesFeatures();
+    fetch.mockResolvedValue(response(diabetesResponse()));
+
+    await expect(api.createDiabetesScreening(features)).resolves.toEqual(diabetesResponse());
+
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls[0][0]).toBe("http://localhost:8080/diabetes-screenings");
+    expect(fetch.mock.calls[0][1].method).toBe("POST");
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual(features);
+    expect(Object.keys(JSON.parse(fetch.mock.calls[0][1].body))).toHaveLength(21);
+    expect(fetch.mock.calls[0][0]).not.toContain(":8000");
+  });
+
+  it("validates the diabetes response class semantics and score ranges", async () => {
+    fetch.mockResolvedValue(response({
+      ...diabetesResponse(),
+      predicted_label: "Confirmed diabetes",
+    }));
+
+    await expect(api.createDiabetesScreening(diabetesFeatures())).rejects.toThrow(
+      "The diabetes screening endpoint returned an unexpected response.",
+    );
+  });
+
+  it("rejects malformed or out-of-range survey payloads before sending", async () => {
+    const incomplete = diabetesFeatures();
+    delete incomplete.Income;
+    await expect(api.createDiabetesScreening(incomplete)).rejects.toThrow("exactly the 21 survey features");
+
+    const invalidCategory = { ...diabetesFeatures(), Age: 1.5 };
+    await expect(api.createDiabetesScreening(invalidCategory)).rejects.toThrow("accepted integer survey codes");
+
+    const invalidBmi = { ...diabetesFeatures(), BMI: Infinity };
+    await expect(api.createDiabetesScreening(invalidBmi)).rejects.toThrow("finite JSON number");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("uses the existing Basic authentication and CSRF flow for diabetes POST", async () => {
+    fetch
+      .mockResolvedValueOnce(response({ token: "diabetes-csrf-token", headerName: "X-XSRF-TOKEN" }))
+      .mockResolvedValueOnce(response(diabetesResponse()));
+    api.setCredentials("demo-admin", "temporary-secret");
+
+    await api.createDiabetesScreening(diabetesFeatures());
+
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+      "http://localhost:8080/csrf",
+      "http://localhost:8080/diabetes-screenings",
+    ]);
+    expect(fetch.mock.calls[1][1].headers.Authorization).toMatch(/^Basic /);
+    expect(fetch.mock.calls[1][1].headers["X-XSRF-TOKEN"]).toBe("diabetes-csrf-token");
+    expect(fetch.mock.calls[1][1].credentials).toBe("include");
   });
 
   it("surfaces network downtime instead of converting it to success", async () => {

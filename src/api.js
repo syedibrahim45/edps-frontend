@@ -2,6 +2,34 @@ const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:808
   .trim()
   .replace(/\/+$/, "");
 const REQUEST_TIMEOUT_MS = 12000;
+const DIABETES_FEATURE_ORDER = [
+  "HighBP", "HighChol", "CholCheck", "Smoker", "Stroke", "HeartDiseaseorAttack",
+  "PhysActivity", "Fruits", "Veggies", "HvyAlcoholConsump", "AnyHealthcare",
+  "NoDocbcCost", "DiffWalk", "Sex", "BMI", "GenHlth", "MentHlth", "PhysHlth",
+  "Age", "Education", "Income",
+];
+const DIABETES_CATEGORIES = {
+  HighBP: [0, 1],
+  HighChol: [0, 1],
+  CholCheck: [0, 1],
+  Smoker: [0, 1],
+  Stroke: [0, 1],
+  HeartDiseaseorAttack: [0, 1],
+  PhysActivity: [0, 1],
+  Fruits: [0, 1],
+  Veggies: [0, 1],
+  HvyAlcoholConsump: [0, 1],
+  AnyHealthcare: [0, 1],
+  NoDocbcCost: [0, 1],
+  DiffWalk: [0, 1],
+  Sex: [0, 1],
+  GenHlth: [1, 2, 3, 4, 5],
+  MentHlth: Array.from({ length: 31 }, (_unused, index) => index),
+  PhysHlth: Array.from({ length: 31 }, (_unused, index) => index),
+  Age: Array.from({ length: 13 }, (_unused, index) => index + 1),
+  Education: Array.from({ length: 6 }, (_unused, index) => index + 1),
+  Income: Array.from({ length: 8 }, (_unused, index) => index + 1),
+};
 let authorizationHeader = "";
 let csrfToken = "";
 
@@ -73,7 +101,12 @@ async function request(path, options = {}, baseUrl = API_BASE_URL, settings = {}
       const detail = [result?.message || result?.error || responseDetail, fieldDetails]
         .filter(Boolean)
         .join(" ");
-      throw new Error(`EDPS API request failed (${response.status})${detail ? `: ${detail}` : ""}`);
+      const apiError = new Error(
+        `EDPS API request failed (${response.status})${detail ? `: ${detail}` : ""}`,
+      );
+      apiError.status = response.status;
+      apiError.fieldErrors = result?.fieldErrors || {};
+      throw apiError;
     }
 
     return result;
@@ -196,6 +229,47 @@ export const api = {
       method: "POST",
       body: JSON.stringify(prediction),
     }));
+  },
+
+  async createDiabetesScreening(features) {
+    if (!features || typeof features !== "object" || Array.isArray(features)
+        || Object.keys(features).length !== DIABETES_FEATURE_ORDER.length
+        || Object.keys(features).some((name) => !DIABETES_FEATURE_ORDER.includes(name))) {
+      throw new Error("A diabetes screening request must contain exactly the 21 survey features.");
+    }
+    const orderedFeatures = {};
+    for (const name of DIABETES_FEATURE_ORDER) {
+      const value = features[name];
+      if (name === "BMI") {
+        if (typeof value !== "number" || !Number.isFinite(value)) {
+          throw new Error("BMI must be a finite JSON number.");
+        }
+      } else if (!Number.isInteger(value) || !DIABETES_CATEGORIES[name].includes(value)) {
+        throw new Error(`${name} must use one of the accepted integer survey codes.`);
+      }
+      orderedFeatures[name] = value;
+    }
+    const result = unwrapRecord(await request("/diabetes-screenings", {
+      method: "POST",
+      body: JSON.stringify(orderedFeatures),
+    }));
+    const validLabels = {
+      0: "No diabetes reported in dataset label",
+      1: "Prediabetes or diabetes reported in dataset label",
+    };
+    if (!result || !Number.isInteger(result.predicted_class)
+        || !Object.hasOwn(validLabels, result.predicted_class)
+        || result.predicted_label !== validLabels[result.predicted_class]
+        || !Number.isFinite(result.positive_class_score)
+        || result.positive_class_score < 0 || result.positive_class_score > 1
+        || !Number.isFinite(result.threshold)
+        || result.threshold < 0 || result.threshold > 1
+        || typeof result.model_id !== "string" || !result.model_id.trim()
+        || typeof result.model_version !== "string" || !result.model_version.trim()
+        || typeof result.disclaimer !== "string" || !result.disclaimer.trim()) {
+      throw new Error("The diabetes screening endpoint returned an unexpected response.");
+    }
+    return result;
   },
 
   async deletePrediction(id) {
